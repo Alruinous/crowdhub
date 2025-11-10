@@ -1,0 +1,151 @@
+// Prisma 客户端生成器配置
+generator client {
+  provider = "prisma-client-js"  // 生成 TypeScript/JavaScript 客户端
+}
+
+// 数据库连接配置
+datasource db {
+  provider = "sqlite"            // 使用 SQLite 数据库
+  url      = "file:./dev.db"     // 数据库文件路径
+}
+
+// 用户模型 - 系统用户信息
+model User {
+  id            String         @id @default(cuid())          // 用户唯一标识
+  name          String                                       // 用户姓名
+  email         String         @unique                       // 邮箱（唯一）
+  password      String                                       // 加密后的密码
+  role          Role           @default(WORKER)              // 用户角色
+  points        Int            @default(0)                   // 积分余额
+  banned        Boolean        @default(false)               // 是否被封禁
+  createdAt     DateTime       @default(now())               // 创建时间
+  updatedAt     DateTime       @updatedAt                    // 最后更新时间
+  
+  // 关联关系
+  publishedTasks Task[]        @relation("PublishedTasks")   // 发布的任务
+  claimedTasks  Subtask[]      @relation("ClaimedTasks")     // 认领的子任务
+  messages      Message[]                                    // 发送的消息
+  categories    UserCategory[]                               // 用户关注的分类
+}
+
+// 分类模型 - 科普任务分类
+model Category {
+  id        String         @id @default(cuid())      // 分类唯一标识
+  name      String         @unique                   // 分类名称（唯一）
+  createdAt DateTime       @default(now())           // 创建时间
+  updatedAt DateTime       @updatedAt                // 最后更新时间
+  
+  // 关联关系
+  tasks     Task[]                                  // 属于该分类的任务
+  users     UserCategory[]                          // 关注该分类的用户
+}
+
+// 任务类型模型 - 科普任务类型
+model TaskType {
+  id        String   @id @default(cuid())    // 类型唯一标识
+  name      String   @unique                 // 类型名称（唯一）
+  createdAt DateTime @default(now())         // 创建时间
+  updatedAt DateTime @updatedAt              // 最后更新时间
+  
+  // 关联关系
+  tasks     Task[]                          // 属于该类型的任务
+}
+
+// 主任务模型 - 科普主任务信息
+model Task {
+  id          String    @id @default(cuid())        // 任务唯一标识
+  title       String                                // 任务标题
+  description String                                // 任务描述
+  points      Int                                   // 任务总积分
+  maxWorkers  Int                                   // 最大工作者数量
+  status      TaskStatus @default(OPEN)             // 任务状态
+  approved    Boolean   @default(false)             // 是否已审批通过
+  createdAt   DateTime  @default(now())             // 创建时间
+  updatedAt   DateTime  @updatedAt                  // 最后更新时间
+  completedAt DateTime?                             // 完成时间（可选）
+  
+  // 关联关系
+  publisher   User      @relation("PublishedTasks", fields: [publisherId], references: [id], onDelete: Cascade)
+  publisherId String                                // 发布者ID
+  category    Category @relation(fields: [categoryId], references: [id])
+  categoryId  String                                // 分类ID
+  type        TaskType @relation(fields: [typeId], references: [id])
+  typeId      String                                // 任务类型ID
+  subtasks    Subtask[]                             // 子任务列表
+  messages    Message[]                             // 任务相关消息
+}
+
+// 子任务模型 - 主任务分解后的子任务
+model Subtask {
+  id          String        @id @default(cuid())    // 子任务唯一标识
+  title       String                                // 子任务标题
+  description String                                // 子任务描述
+  points      Int                                   // 子任务积分
+  status      SubtaskStatus @default(OPEN)          // 子任务状态
+  createdAt   DateTime      @default(now())         // 创建时间
+  updatedAt   DateTime      @updatedAt              // 最后更新时间
+  completedAt DateTime?                             // 完成时间（可选）
+  
+  // 关联关系
+  task        Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String                                // 所属主任务ID
+  worker      User?         @relation("ClaimedTasks", fields: [workerId], references: [id])
+  workerId    String?                               // 认领工作者ID（可选）
+}
+
+// 消息模型 - 任务聊天消息
+model Message {
+  id        String   @id @default(cuid())    // 消息唯一标识
+  content   String                           // 消息内容
+  createdAt DateTime @default(now())         // 发送时间
+  
+  // 关联关系
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderId  String                           // 发送者ID
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String                           // 所属任务ID
+}
+
+// 用户-分类关联模型 - 多对多关系中间表
+model UserCategory {
+  id         String   @id @default(cuid())    // 关联记录唯一标识
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String                           // 用户ID
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  categoryId String                           // 分类ID
+  createdAt  DateTime @default(now())         // 创建时间
+
+  @@unique([userId, categoryId]) // 确保每个用户-类别组合只存在一次（防止重复关注）
+}
+
+// AI配置模型 - 系统AI服务配置
+model AiConfig {
+  id        String   @id @default(cuid())    // 配置唯一标识
+  key       String   @unique                 // 配置键（唯一）
+  value     String                           // 配置值
+  label     String                           // 配置标签（显示名称）
+  createdAt DateTime @default(now())         // 创建时间
+  updatedAt DateTime @updatedAt              // 最后更新时间
+}
+
+// 用户角色枚举
+enum Role {
+  ADMIN      // 管理员 - 系统管理权限
+  PUBLISHER  // 发布者 - 发布和管理任务
+  WORKER     // 工作者 - 认领和完成任务
+}
+
+// 主任务状态枚举
+enum TaskStatus {
+  OPEN         // 开放中 - 可认领
+  IN_PROGRESS  // 进行中 - 已有工作者认领
+  COMPLETED    // 已完成 - 所有子任务完成
+}
+
+// 子任务状态枚举
+enum SubtaskStatus {
+  OPEN             // 开放中 - 可认领
+  IN_PROGRESS      // 进行中 - 已被认领，正在完成
+  PENDING_APPROVAL // 待审批 - 已完成，等待发布者审批
+  COMPLETED        // 已完成 - 已通过审批
+}
