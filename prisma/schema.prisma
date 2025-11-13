@@ -26,6 +26,12 @@ model User {
   claimedTasks  Subtask[]      @relation("ClaimedTasks")     // 认领的子任务
   messages      Message[]                                    // 发送的消息
   categories    UserCategory[]                               // 用户关注的分类
+
+  //数据标注
+  publishedAnnotationTasks AnnotationTask[]        @relation("PublishedAnnotationTasks")
+  claimedAnnotationSubtasks AnnotationSubtask[]    @relation("ClaimedAnnotationSubtasks")
+  annotations              Annotation[]
+  annotationMessages      AnnotationMessage[]
 }
 
 // 分类模型 - 科普任务分类
@@ -38,6 +44,7 @@ model Category {
   // 关联关系
   tasks     Task[]                                  // 属于该分类的任务
   users     UserCategory[]                          // 关注该分类的用户
+  annotationTasks AnnotationTask[]                  // 属于该分类的标注任务
 }
 
 // 任务类型模型 - 科普任务类型
@@ -57,7 +64,7 @@ model Task {
   title       String                                // 任务标题
   description String                                // 任务描述
   points      Int                                   // 任务总积分
-  maxWorkers  Int                                   // 最大工作者数量
+  maxWorkers  Int                                   // 最大接单者数量
   status      TaskStatus @default(OPEN)             // 任务状态
   approved    Boolean   @default(false)             // 是否已审批通过
   createdAt   DateTime  @default(now())             // 创建时间
@@ -90,7 +97,7 @@ model Subtask {
   task        Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
   taskId      String                                // 所属主任务ID
   worker      User?         @relation("ClaimedTasks", fields: [workerId], references: [id])
-  workerId    String?                               // 认领工作者ID（可选）
+  workerId    String?                               // 认领接单者ID（可选）
 }
 
 // 消息模型 - 任务聊天消息
@@ -132,13 +139,13 @@ model AiConfig {
 enum Role {
   ADMIN      // 管理员 - 系统管理权限
   PUBLISHER  // 发布者 - 发布和管理任务
-  WORKER     // 工作者 - 认领和完成任务
+  WORKER     // 接单者 - 认领和完成任务
 }
 
 // 主任务状态枚举
 enum TaskStatus {
   OPEN         // 开放中 - 可认领
-  IN_PROGRESS  // 进行中 - 已有工作者认领
+  IN_PROGRESS  // 进行中 - 已有接单者认领
   COMPLETED    // 已完成 - 所有子任务完成
 }
 
@@ -148,4 +155,166 @@ enum SubtaskStatus {
   IN_PROGRESS      // 进行中 - 已被认领，正在完成
   PENDING_APPROVAL // 待审批 - 已完成，等待发布者审批
   COMPLETED        // 已完成 - 已通过审批
+}
+
+
+// 数据标注任务状态枚举
+enum AnnotationTaskStatus {
+  OPEN             // 开放中 - 可认领
+  IN_PROGRESS      // 进行中 - 已有接单者认领
+  COMPLETED        // 已完成 - 所有子任务完成
+}
+
+// 数据标注子任务状态枚举
+// 发布后OPEN，认领后IN_PROGRESS，
+enum AnnotationSubtaskStatus {
+  OPEN             // 开放中 - 可认领
+  CLAIMED          // 已认领 - 等待发布者审批
+  IN_PROGRESS      // 进行中 - 已批准，正在标注
+  PENDING_REVIEW   // 待审核 - 标注完成，等待发布者审核
+  COMPLETED        // 已完成 - 已通过审核
+  REJECTED         // 已拒绝 - 发布者拒绝标注结果
+}
+
+// 数据标注任务模型
+model AnnotationTask {
+  id          String                @id @default(cuid())
+  title       String                                      // 任务标题
+  description String?                                     // 任务描述
+  status      AnnotationTaskStatus  @default(OPEN)       // 任务状态
+  points      Int                   @default(0)           // 总积分
+  maxWorkers  Int                   @default(1)           // 最大接单者数量
+  approved    Boolean               @default(false)       // 是否已审批通过
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  completedAt DateTime?                                   // 完成时间
+  
+  // 关联关系
+  publisher   User                  @relation("PublishedAnnotationTasks", fields: [publisherId], references: [id], onDelete: Cascade)
+  publisherId String
+  category    Category?             @relation(fields: [categoryId], references: [id])
+  categoryId  String?
+  dataFile    DataFile?             @relation(fields: [dataFileId], references: [id])
+  dataFileId  String?               @unique
+  labelFile   LabelFile?            @relation(fields: [labelFileId], references: [id])
+  labelFileId String?               @unique
+  subtasks    AnnotationSubtask[]                         // 标注子任务
+  annotationMessages AnnotationMessage[]                 // 标注任务相关消息
+  
+  @@map("annotation_tasks")
+}
+
+// 数据文件模型
+model DataFile {
+  id          String           @id @default(cuid())
+  filename    String                                         // 文件名
+  originalName String                                         // 原始文件名
+  path        String                                         // 文件存储路径
+  size        Int                                            // 文件大小
+  mimeType    String                                         // MIME类型
+  rowCount    Int                                            // 数据行数
+  columns     Json                                           // 列定义 (JSON数组)
+  data        Json?                                          // 数据内容 (JSON数组)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  
+  // 关联关系
+  annotationTask AnnotationTask?                             // 所属标注任务
+  
+  @@map("data_files")
+}
+
+// 标签文件模型
+model LabelFile {
+  id          String           @id @default(cuid())
+  filename    String                                         // 文件名
+  originalName String                                         // 原始文件名
+  path        String                                         // 文件存储路径
+  size        Int                                            // 文件大小
+  data        Json?                                          // 数据内容 (JSON数组)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  
+  // 关联关系
+  annotationTask AnnotationTask?                             // 所属标注任务
+  
+  @@map("label_files")
+}
+
+// 数据标注子任务模型
+model AnnotationSubtask {
+  id          String                   @id @default(cuid())
+  title       String                                         // 子任务标题
+  description String?                                        // 子任务描述
+  points      Int                      @default(0)           // 子任务积分
+  status      AnnotationSubtaskStatus  @default(OPEN)        // 子任务状态
+  startRow    Int                                            // 起始行号
+  endRow      Int                                            // 结束行号
+  rowCount    Int                                            // 行数
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  completedAt DateTime?                                      // 完成时间
+  
+  // 关联关系
+  task        AnnotationTask           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String
+  worker      User?                    @relation("ClaimedAnnotationSubtasks", fields: [workerId], references: [id])
+  workerId    String?
+  annotations Annotation[]                                    // 标注结果
+  
+  @@map("annotation_subtasks")
+}
+
+// 标注任务消息模型
+model AnnotationMessage {
+  id        String   @id @default(cuid())    // 消息唯一标识
+  content   String                           // 消息内容
+  createdAt DateTime @default(now())         // 发送时间
+  
+  // 关联关系
+  sender    User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderId  String                           // 发送者ID
+  task      AnnotationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String                           // 所属标注任务ID
+  
+  @@map("annotation_messages")
+}
+
+// 标注结果模型
+model Annotation {
+  id          String   @id @default(cuid())
+  rowIndex    Int                                      // 数据行索引
+  rowData     Json                                     // 原始行数据 (JSON)
+  labels      Json                                     // 标注结果 (JSON) - 兼容旧格式
+  status      String   @default("PENDING")            // 标注状态
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // 关联关系
+  subtask     AnnotationSubtask @relation(fields: [subtaskId], references: [id], onDelete: Cascade)
+  subtaskId   String
+  annotator   User              @relation(fields: [annotatorId], references: [id], onDelete: Cascade)
+  annotatorId String
+
+  // 一条标注记录下的多条分类路径，按维度分组
+  selections  AnnotationSelection[]
+  
+  @@map("annotations")
+}
+
+// 标注选择模型：按维度存储分类路径
+model AnnotationSelection {
+  id            String     @id @default(cuid())
+  pathIds       Json                         // string[]，每级分类的ID
+  pathNames     Json?                        // string[]，可选：每级分类的名称，便于导出
+  dimensionName String     @default("默认分类") // 维度名称
+  dimensionIndex Int       @default(0)       // 维度索引，用于排序
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // 关联
+  annotation    Annotation @relation(fields: [annotationId], references: [id], onDelete: Cascade)
+  annotationId  String
+
+  @@map("annotation_selections")
 }

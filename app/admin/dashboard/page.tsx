@@ -6,6 +6,7 @@ import { AdminShell } from "@/components/admin/admin-shell"
 import { db } from "@/lib/db"
 import { AdminStats } from "@/components/admin/admin-stats"
 import { PendingApprovals } from "@/components/admin/pending-approvals"
+import { getUnifiedTasks, getTaskStats } from "@/lib/task-utils"
 
 export default async function AdminDashboardPage() {
   const session = await getServerSession(authOptions)
@@ -15,23 +16,24 @@ export default async function AdminDashboardPage() {
   }
 
   // Get system stats
+  const [totalUsers, allTasksStats, pendingTasksStats, completedTasksStats] = await Promise.all([
+    db.user.count(),
+    getTaskStats(), // 所有任务的总数（包括未审批的）
+    getTaskStats({ approved: false }), // 待审批任务
+    getTaskStats({ approved: true, status: "COMPLETED" }) // 已完成任务
+  ])
+
   const stats = {
-    totalUsers: await db.user.count(),
-    totalTasks: await db.task.count(),
-    pendingTasks: await db.task.count({ where: { approved: false } }),
-    completedTasks: await db.task.count({ where: { status: "COMPLETED" } }),
+    totalUsers,
+    totalTasks: allTasksStats.total, // 所有任务总数
+    pendingTasks: pendingTasksStats.total, // 待审批任务总数
+    completedTasks: completedTasksStats.total, // 已完成任务总数
   }
 
-  // Get tasks pending approval
-  const pendingTasks = await db.task.findMany({
-    where: { approved: false },
-    orderBy: { createdAt: "desc" },
-    include: {
-      publisher: {
-        select: { name: true },
-      },
-      category: true,
-    },
+  // Get tasks pending approval (both task and annotation task)
+  const pendingTasks = await getUnifiedTasks({
+    approved: false
+    // 不设置 limit，显示所有待审批任务
   })
 
   return (

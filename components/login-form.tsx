@@ -65,7 +65,11 @@ export function LoginForm() {
       }
 
       router.refresh();
-      router.push("/dashboard");
+      // 使用 setTimeout 确保路由跳转在下一个事件循环中执行
+      setTimeout(() => {
+        console.log('普通登录跳转到: /dashboard')
+        router.push("/dashboard");
+      }, 100)
     } catch (error) {
       toast({
         title: "发生错误",
@@ -116,11 +120,16 @@ export function LoginForm() {
       });
 
       router.refresh();
-      if (role === "admin") {
-        router.push("/admin/dashboard");
-      } else {
-        router.push("/dashboard");
-      }
+      // 使用 setTimeout 确保路由跳转在下一个事件循环中执行
+      setTimeout(() => {
+        if (role === "admin") {
+          console.log('管理员跳转到: /admin/dashboard')
+          router.push("/admin/dashboard");
+        } else {
+          console.log(`${role} 跳转到: /dashboard`)
+          router.push("/dashboard");
+        }
+      }, 100)
     } catch (error) {
       toast({
         title: "发生错误",

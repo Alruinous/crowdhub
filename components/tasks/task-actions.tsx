@@ -74,7 +74,7 @@ export function TaskActions({ task, isAdmin }: TaskActionsProps) {
         description: "任务已成功删除",
       })
 
-      router.push("/tasks")
+      router.push("/tasklist")
     } catch (error) {
       toast({
         title: "操作失败",

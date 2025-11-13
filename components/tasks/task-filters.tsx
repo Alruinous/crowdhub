@@ -59,7 +59,7 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
 
   // Clear all filters
   const clearFilters = () => {
-    router.push("/tasks")
+    router.push("/tasklist")
   }
 
   return (

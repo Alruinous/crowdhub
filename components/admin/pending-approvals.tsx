@@ -5,13 +5,15 @@ import { useRouter } from "next/navigation"
 import { formatDistanceToNow } from "date-fns"
 import { zhCN } from "date-fns/locale"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
-import { CheckCircle, XCircle, Eye } from "lucide-react"
+import { CheckCircle, XCircle, Eye, FileText, Database } from "lucide-react"
 import Link from "next/link"
+import { UnifiedTask } from "@/lib/task-types"
 
 interface PendingApprovalsProps {
-  tasks: any[]
+  tasks: UnifiedTask[]
 }
 
 export function PendingApprovals({ tasks }: PendingApprovalsProps) {
@@ -28,10 +30,14 @@ export function PendingApprovals({ tasks }: PendingApprovalsProps) {
   }
 
   // Approve task
-  const approveTask = async (taskId: string) => {
-    setLoadingId(taskId)
+  const approveTask = async (task: UnifiedTask) => {
+    setLoadingId(task.id)
     try {
-      const response = await fetch(`/api/tasks/${taskId}/approve`, {
+      const apiUrl = task.taskType === "标注任务" 
+        ? `/api/annotation-tasks/${task.id}/approve`
+        : `/api/tasks/${task.id}/approve`
+
+      const response = await fetch(apiUrl, {
         method: "PATCH",
       })
 
@@ -41,7 +47,7 @@ export function PendingApprovals({ tasks }: PendingApprovalsProps) {
 
       toast({
         title: "任务已审批",
-        description: "任务已成功审批并发布",
+        description: `${task.taskType}已成功审批并发布`,
       })
 
       router.refresh()
@@ -57,10 +63,14 @@ export function PendingApprovals({ tasks }: PendingApprovalsProps) {
   }
 
   // Reject task
-  const rejectTask = async (taskId: string) => {
-    setLoadingId(taskId)
+  const rejectTask = async (task: UnifiedTask) => {
+    setLoadingId(task.id)
     try {
-      const response = await fetch(`/api/tasks/${taskId}`, {
+      const apiUrl = task.taskType === "标注任务" 
+        ? `/api/annotation-tasks/${task.id}`
+        : `/api/tasks/${task.id}`
+
+      const response = await fetch(apiUrl, {
         method: "DELETE",
       })
 
@@ -70,7 +80,7 @@ export function PendingApprovals({ tasks }: PendingApprovalsProps) {
 
       toast({
         title: "任务已拒绝",
-        description: "任务已被拒绝并删除",
+        description: `${task.taskType}已被拒绝并删除`,
       })
 
       router.refresh()
@@ -85,11 +95,31 @@ export function PendingApprovals({ tasks }: PendingApprovalsProps) {
     }
   }
 
+  // Get task type icon
+  const getTaskTypeIcon = (taskType: string) => {
+    return taskType === "标注任务" ? <Database className="h-4 w-4" /> : <FileText className="h-4 w-4" />
+  }
+
+  // Get task type badge color
+  const getTaskTypeColor = (taskType: string) => {
+    return taskType === "标注任务" 
+      ? "bg-green-100 text-green-800 border-green-200"
+      : "bg-blue-100 text-blue-800 border-blue-200"
+  }
+
+  // Get task detail link
+  const getTaskDetailLink = (task: UnifiedTask) => {
+    return task.taskType === "标注任务" 
+      ? `/annotation-tasks/${task.id}`
+      : `/tasks/${task.id}`
+  }
+
   return (
     <div className="rounded-md border">
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead>任务类型</TableHead>
             <TableHead>任务标题</TableHead>
             <TableHead>发布者</TableHead>
             <TableHead>分类</TableHead>
@@ -100,9 +130,17 @@ export function PendingApprovals({ tasks }: PendingApprovalsProps) {
         <TableBody>
           {tasks.map((task) => (
             <TableRow key={task.id}>
+              <TableCell>
+                <Badge variant="outline" className={getTaskTypeColor(task.taskType)}>
+                  <span className="flex items-center gap-1">
+                    {getTaskTypeIcon(task.taskType)}
+                    {task.taskType}
+                  </span>
+                </Badge>
+              </TableCell>
               <TableCell className="font-medium">{task.title}</TableCell>
               <TableCell>{task.publisher.name}</TableCell>
-              <TableCell>{task.category.name}</TableCell>
+              <TableCell>{task.category?.name || "未分类"}</TableCell>
               <TableCell>
                 {formatDistanceToNow(new Date(task.createdAt), {
                   addSuffix: true,
@@ -112,14 +150,14 @@ export function PendingApprovals({ tasks }: PendingApprovalsProps) {
               <TableCell className="text-right">
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" size="sm" asChild>
-                    <Link href={`/tasks/${task.id}`}>
+                    <Link href={getTaskDetailLink(task)}>
                       <Eye className="h-4 w-4" />
                     </Link>
                   </Button>
                   <Button
                     variant="default"
                     size="sm"
-                    onClick={() => approveTask(task.id)}
+                    onClick={() => approveTask(task)}
                     disabled={loadingId === task.id}
                   >
                     <CheckCircle className="h-4 w-4" />
@@ -127,7 +165,7 @@ export function PendingApprovals({ tasks }: PendingApprovalsProps) {
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => rejectTask(task.id)}
+                    onClick={() => rejectTask(task)}
                     disabled={loadingId === task.id}
                   >
                     <XCircle className="h-4 w-4" />

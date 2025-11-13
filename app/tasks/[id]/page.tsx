@@ -11,14 +11,20 @@ import { MessageCircle, Edit } from "lucide-react";
 import Link from "next/link";
 import { TaskStatus } from "@prisma/client";
 
-export default async function TaskPage({ params }) {
+interface TaskPageProps {
+  params: {
+    id: string;
+  };
+}
+
+export default async function TaskPage({ params }: TaskPageProps) {
   const session = await getServerSession(authOptions);
 
   if (!session) {
     redirect("/login");
   }
 
-  const taskId = params.id;
+  const taskId = (await params).id;
 
   // Get task with subtasks
   const task = await db.task.findUnique({
@@ -49,7 +55,7 @@ export default async function TaskPage({ params }) {
     task.publisher.id !== session.user.id &&
     session.user.role !== "ADMIN"
   ) {
-    redirect("/tasks");
+    redirect("/tasklist");
   }
 
   // Check if user has claimed any subtask

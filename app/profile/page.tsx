@@ -135,7 +135,7 @@ export default async function ProfilePage() {
           </CardContent>
         </Card>
 
-        {/* 如果是工作者，显示擅长领域 */}
+        {/* 如果是接单者，显示擅长领域 */}
         {user.role === "WORKER" && (
           <Card>
             <CardHeader>

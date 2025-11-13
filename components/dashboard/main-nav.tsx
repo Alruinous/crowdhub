@@ -12,31 +12,36 @@ export function MainNav() {
   const isAdmin = session?.user?.role === "ADMIN"
   const isPublisher = session?.user?.role === "PUBLISHER"
 
-  const routes = [
-    {
-      href: "/dashboard",
-      label: "仪表盘",
-      active: pathname === "/dashboard",
-    },
-    {
-      href: "/tasks",
-      label: "任务列表",
-      active: pathname === "/tasks" || pathname.startsWith("/tasks/"),
-    },
-    // {
-    //   href: "/profile",
-    //   label: "个人资料",
-    //   active: pathname === "/profile",
-    // },
-  ]
+  let routes = []
 
-  // Add admin routes if user is admin
   if (isAdmin) {
-    routes.push({
-      href: "/admin/dashboard",
-      label: "管理后台",
-      active: pathname.startsWith("/admin"),
-    })
+    // 管理员只显示管理后台
+    routes = [
+      {
+        href: "/admin/dashboard",
+        label: "管理后台",
+        active: pathname.startsWith("/admin"),
+      },
+    ]
+  } else {
+    // 普通用户显示仪表盘和任务列表
+    routes = [
+      {
+        href: "/dashboard",
+        label: "仪表盘",
+        active: pathname === "/dashboard",
+      },
+      {
+        href: "/tasklist",
+        label: "任务列表",
+        active: pathname === "/tasklist" || pathname.startsWith("/tasklist/"),
+      },
+      // {
+      //   href: "/profile",
+      //   label: "个人资料",
+      //   active: pathname === "/profile",
+      // },
+    ]
   }
 
   return (

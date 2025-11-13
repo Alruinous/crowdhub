@@ -53,10 +53,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       return NextResponse.json({ message: "此任务不在招募中状态，无法认领" }, { status: 400 })
     }
 
-    // Check if user has already claimed a subtask in this task
-    if (subtask.task.subtasks.length > 0) {
-      return NextResponse.json({ message: "您已认领此任务的子任务，不能重复认领" }, { status: 400 })
-    }
 
     // Count workers in this task
     const workerCount = await db.subtask.count({
