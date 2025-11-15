@@ -117,20 +117,30 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
 
         <div className="md:col-span-2">
           <label className="text-sm font-medium mb-1 block">搜索</label>
-          <form onSubmit={handleSearch} className="flex gap-2">
-            <Input name="search" placeholder="搜索任务标题或描述" defaultValue={search} />
-            <Button type="submit" size="icon">
+          <form onSubmit={handleSearch} className="flex items-center gap-2">
+            <Input
+              name="search"
+              placeholder="搜索任务标题或描述"
+              defaultValue={search}
+              className="flex-1"
+            />
+            <Button type="submit" size="icon" aria-label="搜索">
               <Search className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={clearFilters}
+              className="whitespace-nowrap"
+            >
+              清除筛选
             </Button>
           </form>
         </div>
       </div>
 
-      <div className="flex justify-end mt-4">
-        <Button variant="outline" size="sm" onClick={clearFilters}>
-          清除筛选
-        </Button>
-      </div>
+      {/* 已合并清除筛选按钮到搜索行，底部区域移除 */}
     </div>
   )
 }

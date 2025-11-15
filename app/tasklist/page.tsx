@@ -36,7 +36,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const taskTypeParam: string = resolvedSearchParams.taskType || "ALL"
   const searchParam: string = resolvedSearchParams.search || ""
   const page: number = Number.parseInt(resolvedSearchParams.page || "1")
-  const limit: number = 10
+  const limit: number = 6
 
   // 使用统一的任务工具函数获取任务
   const unifiedTasks = await getUnifiedTasks({
@@ -84,6 +84,12 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
           pagination={{
             currentPage: page,
             totalPages,
+          }}
+          query={{
+            ...(statusParam ? { status: statusParam } : {}),
+            ...(categoryParam ? { category: categoryParam } : {}),
+            ...(taskTypeParam ? { taskType: taskTypeParam } : {}),
+            ...(searchParam ? { search: searchParam } : {}),
           }}
         />
       </div>

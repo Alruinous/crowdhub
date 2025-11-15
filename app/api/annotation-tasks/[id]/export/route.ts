@@ -101,7 +101,7 @@ export async function GET(
       annotationsByRowIndex[rowIndex].push(annotation);
     });
 
-    console.log("按行索引分组的标注:", Object.keys(annotationsByRowIndex).length);
+    // console.log("按行索引分组的标注:", Object.keys(annotationsByRowIndex).length);
 
     // 获取所有维度名称（用于动态生成列）
     const allDimensionNames = new Set<string>();
@@ -140,7 +140,7 @@ export async function GET(
       rowAnnotations.forEach((annotation: any) => {
         if (annotation.selections && Array.isArray(annotation.selections)) {
           annotation.selections.forEach((selection: any) => {
-            console.log("###selection",selection)
+            // console.log("###selection",selection)
             const dimensionName = selection.dimensionName || "默认分类";
             if (selection.pathNames) {
               try {

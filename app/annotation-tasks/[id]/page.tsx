@@ -78,22 +78,22 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           {task.publisher.id === session.user.id && (
             <>
               <ExportButton taskId={taskId} taskTitle={task.title} />
-              <Button asChild variant="outline">
+              {/* <Button asChild variant="outline">
                 <Link href={`/annotation-tasks/${taskId}/edit`}>
                   <Edit className="h-4 w-4" />
                   编辑
                 </Link>
-              </Button>
+              </Button> */}
             </>
           )}
-          {(task.publisher.id === session.user.id || hasClaimedSubtask) && (
+          {/* {(task.publisher.id === session.user.id || hasClaimedSubtask) && (
             <Button asChild variant="outline">
               <Link href={`/annotation-chat/${taskId}`}>
                 <MessageCircle className="h-4 w-4" />
                 聊天
               </Link>
             </Button>
-          )}
+          )} */}
         </div>
       </DashboardHeader>
 
@@ -108,44 +108,36 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-muted-foreground">任务状态:</span>
-                  <div className="font-medium">
-                    <Badge variant={
-                      task.status === "OPEN" ? "default" :
-                      task.status === "IN_PROGRESS" ? "secondary" : "outline"
-                    }>
-                      {task.status === "OPEN" ? "开放中" :
-                       task.status === "IN_PROGRESS" ? "进行中" : "已完成"}
-                    </Badge>
-                  </div>
+                  <span className="text-muted-foreground mr-1">任务状态:</span>
+                  <span className="font-medium">
+                    {task.status === "OPEN"
+                      ? "开放中"
+                      : task.status === "IN_PROGRESS"
+                        ? "进行中"
+                        : "已完成"}
+                  </span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">审批状态:</span>
-                  <div className="font-medium">
-                    <Badge variant={task.approved ? "default" : "secondary"}>
-                      {task.approved ? "已审批" : "待审批"}
-                    </Badge>
-                  </div>
+                  <span className="text-muted-foreground mr-1">审批状态:</span>
+                  <span className="font-medium">
+                    {task.approved ? "已审批" : "待审批"}
+                  </span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">总积分:</span>
-                  <div className="font-medium">{task.points}</div>
+                  <span className="text-muted-foreground mr-1">总积分:</span>
+                  <span className="font-medium">{task.points}</span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">最大接单者:</span>
-                  <div className="font-medium">{task.maxWorkers}</div>
+                  <span className="text-muted-foreground mr-1">最大接单者:</span>
+                  <span className="font-medium">{task.maxWorkers}</span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">创建时间:</span>
-                  <div className="font-medium">
-                    {new Date(task.createdAt).toLocaleDateString()}
-                  </div>
+                  <span className="text-muted-foreground mr-1">创建时间:</span>
+                  <span className="font-medium">{new Date(task.createdAt).toLocaleDateString()}</span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">更新时间:</span>
-                  <div className="font-medium">
-                    {new Date(task.updatedAt).toLocaleDateString()}
-                  </div>
+                  <span className="text-muted-foreground mr-1">更新时间:</span>
+                  <span className="font-medium">{new Date(task.updatedAt).toLocaleDateString()}</span>
                 </div>
               </div>
             </CardContent>

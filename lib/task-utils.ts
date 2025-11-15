@@ -26,50 +26,55 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
   const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, search })
 
   // 并行查询两种任务
+  // 当请求类型为 ALL 时，需要“跨两张表的统一分页”逻辑：
+  // 不能分别 skip/take 后再合并，否则会出现两边独立分页、合并后总数不足的问题。
+  // 方案：各自查询前 (page * limit) 条，合并排序后再在内存里 slice 需要的区间。
   const [tasks, annotationTasks] = await Promise.all([
-    // 查询科普任务
-    taskType !== "标注任务" ? db.task.findMany({
-      where: taskWhere,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-      include: {
-        publisher: { select: { name: true } },
-        category: true,
-        _count: { select: { subtasks: true } },
-      },
-    }) : [],
-
-    // 查询标注任务
-    taskType !== "科普任务" ? db.annotationTask.findMany({
-      where: annotationTaskWhere,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: limit,
-      include: {
-        publisher: { select: { name: true } },
-        category: true,
-        _count: { select: { subtasks: true } },
-      },
-    }) : []
+    taskType !== "标注任务"
+      ? db.task.findMany({
+          where: taskWhere,
+          orderBy: { createdAt: "desc" },
+          // 如果只查科普任务仍使用数据库分页；如果是 ALL 则取前 page*limit 条
+          skip: taskType === "ALL" ? 0 : skip,
+          take: taskType === "ALL" ? page * limit : limit,
+          include: {
+            publisher: { select: { name: true } },
+            category: true,
+            _count: { select: { subtasks: true } },
+          },
+        })
+      : [],
+    taskType !== "科普任务"
+      ? db.annotationTask.findMany({
+          where: annotationTaskWhere,
+          orderBy: { createdAt: "desc" },
+          skip: taskType === "ALL" ? 0 : skip,
+          take: taskType === "ALL" ? page * limit : limit,
+          include: {
+            publisher: { select: { name: true } },
+            category: true,
+            _count: { select: { subtasks: true } },
+          },
+        })
+      : [],
   ])
 
-  // 合并任务并添加类型标识
-  const unifiedTasks: UnifiedTask[] = [
-    ...tasks.map(task => ({
-      ...task,
-      taskType: "科普任务" as const
-    })),
-    ...annotationTasks.map(task => ({
-      ...task,
-      taskType: "标注任务" as const
-    }))
+  // 合并并标记类型
+  let unifiedTasks: UnifiedTask[] = [
+    ...tasks.map((task) => ({ ...task, taskType: "科普任务" as const })),
+    ...annotationTasks.map((task) => ({ ...task, taskType: "标注任务" as const })),
   ]
 
-  // 按创建时间排序
-  return unifiedTasks.sort((a, b) => 
-    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  unifiedTasks = unifiedTasks.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )
+
+  // 如果是 ALL，需要在合并后做统一分页截取
+  if (taskType === "ALL") {
+    unifiedTasks = unifiedTasks.slice(skip, skip + limit)
+  }
+
+  return unifiedTasks
 }
 
 /**
@@ -79,13 +84,14 @@ export async function getTaskStats(params: Omit<TaskQueryParams, 'page' | 'limit
   const {
     status = "ALL",
     categoryId = "ALL",
-    approved = undefined,  // 默认显示所有任务，包括未审批的
+    approved = undefined,
     taskType = "ALL",
-    search = undefined
+    search = undefined,
+    publisherId = undefined
   } = params
 
-  const taskWhere = buildTaskWhere({ status, categoryId, approved, search })
-  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, search })
+  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, search })
+  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, search })
 
   const [taskCount, annotationTaskCount] = await Promise.all([
     taskType !== "标注任务" ? db.task.count({ where: taskWhere }) : 0,

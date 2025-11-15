@@ -19,9 +19,11 @@ interface TaskListProps {
     currentPage: number;
     totalPages: number;
   };
+  // 额外需要在分页链接中保留的查询参数（例如 search、status 等）
+  query?: Record<string, string>;
 }
 
-export function TaskList({ tasks, userRole, pagination }: TaskListProps) {
+export function TaskList({ tasks, userRole, pagination, query }: TaskListProps) {
   // 对于工作者用户，传入的是子任务数组，需要按任务去重
   let displayTasks = tasks;
   
@@ -190,7 +192,7 @@ export function TaskList({ tasks, userRole, pagination }: TaskListProps) {
               >
                 <Link
                   href={{
-                    query: { page },
+                    query: { ...(query || {}), page },
                   }}
                 >
                   {page}
