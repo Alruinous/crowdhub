@@ -16,6 +16,7 @@ interface TasksPageProps {
     category?: string
     page?: string
     taskType?: string
+    search?: string
   }>
 }
 
@@ -33,6 +34,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   const statusParam: string = resolvedSearchParams.status || "ALL"
   const categoryParam: string = resolvedSearchParams.category || "ALL"
   const taskTypeParam: string = resolvedSearchParams.taskType || "ALL"
+  const searchParam: string = resolvedSearchParams.search || ""
   const page: number = Number.parseInt(resolvedSearchParams.page || "1")
   const limit: number = 10
 
@@ -43,7 +45,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     approved: true,
     page,
     limit,
-    taskType: taskTypeParam as "ALL" | "科普任务" | "标注任务"
+    taskType: taskTypeParam as "ALL" | "科普任务" | "标注任务",
+    search: searchParam
   })
 
   // 使用统一的任务工具函数获取统计信息
@@ -51,7 +54,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     status: statusParam,
     categoryId: categoryParam,
     approved: true,
-    taskType: taskTypeParam as "ALL" | "科普任务" | "标注任务"
+    taskType: taskTypeParam as "ALL" | "科普任务" | "标注任务",
+    search: searchParam
   })
 
   const totalPages: number = Math.ceil(stats.total / limit)
@@ -71,7 +75,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
 
       <div className="space-y-4">
         <div className="text-sm text-muted-foreground">
-          共 {stats.total} 个任务（{stats.taskCount} 个科普任务，{stats.annotationTaskCount} 个标注任务）
+          共 {stats.total} 个任务
         </div>
 
         <TaskList

@@ -17,16 +17,19 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
+  // 本地开关：是否启用分类筛选（无需环境变量）
+  const ENABLE_CATEGORY_FILTER = false
+
   // Get current filter values
   const status = searchParams.get("status") || "ALL"
-  const category = searchParams.get("category") || "ALL"
+  const category = ENABLE_CATEGORY_FILTER ? (searchParams.get("category") || "ALL") : "ALL"
   const search = searchParams.get("search") || ""
 
   // Create query string
   const createQueryString = useCallback(
     (name: string, value: string) => {
       const params = new URLSearchParams(searchParams.toString())
-      params.set("page", "1") // Reset to first page on filter change
+      params.set("page", "1") // 任何筛选变化重置到第一页
 
       if (value) {
         params.set(name, value)
@@ -34,6 +37,10 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
         params.delete(name)
       }
 
+      // 如果分类筛选被禁用，则强制移除 category 参数
+      if (!ENABLE_CATEGORY_FILTER) {
+        params.delete("category")
+      }
       return params.toString()
     },
     [searchParams],
@@ -46,6 +53,14 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
 
   // Handle category change
   const handleCategoryChange = (value: string) => {
+    if (!ENABLE_CATEGORY_FILTER) {
+      // 禁用时始终移除 category 参数
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete("category")
+      params.set("page", "1")
+      router.push(`?${params.toString()}`)
+      return
+    }
     router.push(`?${createQueryString("category", value)}`)
   }
 
@@ -54,6 +69,7 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
     e.preventDefault()
     const formData = new FormData(e.target as HTMLFormElement)
     const searchValue = formData.get("search") as string
+    console.log("Searching for:", searchValue)
     router.push(`?${createQueryString("search", searchValue)}`)
   }
 
@@ -80,22 +96,24 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
           </Select>
         </div>
 
-        <div>
-          <label className="text-sm font-medium mb-1 block">分类</label>
-          <Select value={category} onValueChange={handleCategoryChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="所有分类" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">所有分类</SelectItem>
-              {categories.map((category) => (
-                <SelectItem key={category.id} value={category.id}>
-                  {category.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {ENABLE_CATEGORY_FILTER && (
+          <div>
+            <label className="text-sm font-medium mb-1 block">分类</label>
+            <Select value={category} onValueChange={handleCategoryChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="所有分类" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">所有分类</SelectItem>
+                {categories.map((category) => (
+                  <SelectItem key={category.id} value={category.id}>
+                    {category.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         <div className="md:col-span-2">
           <label className="text-sm font-medium mb-1 block">搜索</label>

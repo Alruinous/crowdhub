@@ -39,6 +39,9 @@ export function TaskList({ tasks, userRole, pagination }: TaskListProps) {
         if (!existingTask || new Date(task.createdAt) > new Date(existingTask.createdAt)) {
           taskMap.set(taskId, task);
         }
+      } else {
+        // 如果是任务对象（不是子任务），直接添加到显示列表
+        taskMap.set(task.id, task);
       }
     });
     

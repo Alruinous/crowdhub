@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MessageCircle, Edit, Database, FileText, User } from "lucide-react";
+import { MessageCircle, Edit, Database, FileText, User, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { AnnotationTaskStatus } from "@prisma/client";
 import { ClaimButton } from "@/components/annotation/claim-button";
@@ -71,7 +71,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
     <DashboardShell>
       <DashboardHeader
         heading={task.title}
-        text={`标注任务 | 类别: ${task.category?.name || "未分类"} | 状态: ${task.status}`}
+        // text={`标注任务 | 类别: ${task.category?.name || "未分类"} | 状态: ${task.status}`}
       >
         {/* 当用户是任务发布者时显示编辑按钮 */}
         <div className="flex items-center justify-end gap-3">
@@ -164,7 +164,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           </Card>
 
           {/* 文件信息 */}
-          <Card>
+          {/* <Card>
             <CardHeader>
               <CardTitle>文件信息</CardTitle>
             </CardHeader>
@@ -188,7 +188,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
                 </div>
               </div>
             </CardContent>
-          </Card>
+          </Card> */}
         </div>
 
         {/* 右侧：发布者信息 */}

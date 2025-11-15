@@ -32,6 +32,7 @@ export interface TaskQueryParams {
   limit?: number
   taskType?: "ALL" | "科普任务" | "标注任务"
   publisherId?: string
+  search?: string // 新增：标题模糊搜索
 }
 
 // 任务统计信息

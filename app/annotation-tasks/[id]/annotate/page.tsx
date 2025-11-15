@@ -78,6 +78,9 @@ function analyzeCategoryTree(categories: LabelCategory[], currentLevel: number =
 }
 
 export default function AnnotationPage({ params }: { params: Promise<{ id: string }> }) {
+  // 本地开关：是否允许“新增一个分类”操作
+  const ENABLE_ADD_CATEGORY = false
+
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
@@ -187,15 +190,15 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
             }
           }
           
-          // 如果没有找到已有标注，为每个维度创建空的分类选择
+          // 如果没有找到已有标注，为每个维度创建一个空白分类选择
           if (selections.length === 0) {
             selections = labelDimensions.map(dimension => ({
               dimensionName: dimension.name,
               pathIds: []
             }))
           }
-
-          // 确保每个维度都有对应的选择记录
+          
+          // 确保每个维度至少有一个空白分类选择
           const dimensionSelections = new Map<string, AnnotationSelection>()
           
           // 首先添加已有的选择
@@ -203,7 +206,7 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
             dimensionSelections.set(selection.dimensionName, selection)
           })
           
-          // 然后为缺失的维度添加空选择
+          // 然后为缺失的维度添加空白选择
           labelDimensions.forEach(dimension => {
             if (!dimensionSelections.has(dimension.name)) {
               dimensionSelections.set(dimension.name, {
@@ -239,6 +242,40 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
   const currentRow = dataRows[currentIndex]
   const currentAnnotation = currentRow ? annotations[currentRow.index] : undefined
 
+  // 获取当前维度的分类
+  const getCurrentDimension = () => {
+    return labelDimensions[currentDimensionIndex] || labelDimensions[0]
+  }
+
+  // 确保当前维度至少有一个分类条
+  useEffect(() => {
+    if (!isLoading && currentRow && currentAnnotation) {
+      const currentDimension = getCurrentDimension()
+      const currentDimensionSelections = currentAnnotation.selections.filter(sel => sel.dimensionName === currentDimension?.name)
+      
+      if (currentDimensionSelections.length === 0) {
+        // 当前维度没有分类条，自动创建一个
+        const rowKey = currentRow.index
+        setAnnotations((prev) => {
+          const cur = prev[rowKey]
+          return {
+            ...prev,
+            [rowKey]: { 
+              ...cur, 
+              selections: [...cur.selections, { 
+                dimensionName: currentDimension?.name || "默认分类",
+                pathIds: [] 
+              }] 
+            },
+          }
+        })
+        
+        // 展开新创建的分类条
+        setExpandedSelections({ 0: true })
+      }
+    }
+  }, [isLoading, currentRow, currentAnnotation, getCurrentDimension])
+
   const handleNext = () => {
     if (currentIndex < dataRows.length - 1) {
       setCurrentIndex((i) => i + 1)
@@ -269,11 +306,6 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
       if (found) return found
     }
     return null
-  }
-
-  // 获取当前维度的分类
-  const getCurrentDimension = () => {
-    return labelDimensions[currentDimensionIndex] || labelDimensions[0]
   }
 
   // 获取某一行选择的第 level 级可选项
@@ -308,6 +340,33 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
   // 切换维度
   const handleDimensionChange = (dimensionIndex: number) => {
     setCurrentDimensionIndex(dimensionIndex)
+    
+    // 检查新维度是否有分类条，如果没有则自动创建一个
+    if (currentRow && currentAnnotation) {
+      const newDimension = labelDimensions[dimensionIndex]
+      const currentDimensionSelections = currentAnnotation.selections.filter(sel => sel.dimensionName === newDimension?.name)
+      
+      if (currentDimensionSelections.length === 0) {
+        // 当前维度没有分类条，自动创建一个
+        const rowKey = currentRow.index
+        setAnnotations((prev) => {
+          const cur = prev[rowKey]
+          return {
+            ...prev,
+            [rowKey]: { 
+              ...cur, 
+              selections: [...cur.selections, { 
+                dimensionName: newDimension?.name || "默认分类",
+                pathIds: [] 
+              }] 
+            },
+          }
+        })
+        
+        // 展开新创建的分类条
+        setExpandedSelections({ 0: true })
+      }
+    }
   }
 
   // 修改某一行某级选择
@@ -357,6 +416,19 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
     setAnnotations((prev) => {
       const cur = prev[rowKey]
       const currentDimension = getCurrentDimension()
+      
+      // 获取当前维度下的选择数量，用于确定新分类的索引
+      const currentDimensionSelections = cur.selections.filter(sel => sel.dimensionName === getCurrentDimension()?.name)
+      const newSelectionIndex = currentDimensionSelections.length
+      
+      // 收起所有分类条
+      const newExpandedSelections: Record<number, boolean> = {}
+      
+      // 展开新创建的分类条
+      newExpandedSelections[newSelectionIndex] = true
+      
+      setExpandedSelections(newExpandedSelections)
+      
       return {
         ...prev,
         [rowKey]: { ...cur, selections: [...cur.selections, { 
@@ -543,14 +615,36 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {Object.entries(currentRow.data).map(([key, value]) => (
-                  <div key={key} className="space-y-1">
-                    <h4 className="font-medium text-sm capitalize text-muted-foreground">{key}:</h4>
-                    <p className="text-sm">
-                      {typeof value === 'string' ? value : JSON.stringify(value)}
-                    </p>
-                  </div>
-                ))}
+                {Object.entries(currentRow.data).map(([key, value]) => {
+                  // 检查是否是URL或文件路径
+                  const isUrl = typeof value === 'string' && (
+                    value.startsWith('http://') || 
+                    value.startsWith('https://') ||
+                    value.startsWith('file://') ||
+                    value.startsWith('/') ||
+                    value.includes('.') && (value.includes('/') || value.includes('\\'))
+                  )
+                  
+                  return (
+                    <div key={key} className="space-y-1">
+                      <h4 className="font-medium text-sm capitalize text-muted-foreground">{key}:</h4>
+                      {isUrl ? (
+                        <a 
+                          href={value} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-sm text-blue-600 hover:text-blue-800 underline break-all"
+                        >
+                          {value}
+                        </a>
+                      ) : (
+                        <p className="text-sm">
+                          {typeof value === 'string' ? value : JSON.stringify(value)}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </CardContent>
           </Card>
@@ -558,15 +652,11 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
 
         {/* 右侧分类选择（多行） */}
         <div className="space-y-6">
-          {/* 维度切换卡片 */}
-          {labelDimensions.length > 1 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>维度选择</CardTitle>
-                <CardDescription>选择要标注的分类维度</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>分类标注</CardTitle>
+              {labelDimensions.length > 1 && (
+                <div className="flex flex-wrap gap-2 mt-2">
                   {labelDimensions.map((dimension, index) => (
                     <Button
                       key={dimension.name}
@@ -579,19 +669,7 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
                     </Button>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card>
-            <CardHeader>
-              <CardTitle>分类标注</CardTitle>
-              <CardDescription>
-                {labelDimensions.length > 1 
-                  ? `当前维度: ${getCurrentDimension()?.name || "默认分类"}`
-                  : ""
-                }
-              </CardDescription>
+              )}
             </CardHeader>
             <CardContent className="space-y-5">
               {/* 只显示当前维度的分类选择 */}
@@ -672,23 +750,17 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
                             )
                           })}
 
-                          {/* 路径预览 */}
-                          {sel.pathIds.length > 0 && (
-                            <div className="p-2 bg-muted rounded">
-                              <div className="text-xs text-muted-foreground">
-                                <strong>当前选择:</strong> {getSelectedCategoryPathNames(sel.pathIds, sel.dimensionName).join(" → ")}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
                   )
                 })}
 
-              <Button variant="outline" onClick={addSelectionRow} className="w-full">
-                <Plus className="h-4 w-4 mr-2" /> 新增一个分类
-              </Button>
+              {ENABLE_ADD_CATEGORY && (
+                <Button variant="outline" onClick={addSelectionRow} className="w-full">
+                  <Plus className="h-4 w-4 mr-2" /> 新增一个分类
+                </Button>
+              )}
             </CardContent>
           </Card>
 

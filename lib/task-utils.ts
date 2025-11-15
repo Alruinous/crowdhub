@@ -15,14 +15,15 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
     page = 1,
     limit = 10,
     taskType = "ALL",
-    publisherId = undefined
+    publisherId = undefined,
+    search = undefined
   } = params
 
   const skip = (page - 1) * limit
 
   // 构建查询条件
-  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId })
-  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId })
+  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, search })
+  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, search })
 
   // 并行查询两种任务
   const [tasks, annotationTasks] = await Promise.all([
@@ -79,11 +80,12 @@ export async function getTaskStats(params: Omit<TaskQueryParams, 'page' | 'limit
     status = "ALL",
     categoryId = "ALL",
     approved = undefined,  // 默认显示所有任务，包括未审批的
-    taskType = "ALL"
+    taskType = "ALL",
+    search = undefined
   } = params
 
-  const taskWhere = buildTaskWhere({ status, categoryId, approved })
-  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved })
+  const taskWhere = buildTaskWhere({ status, categoryId, approved, search })
+  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, search })
 
   const [taskCount, annotationTaskCount] = await Promise.all([
     taskType !== "标注任务" ? db.task.count({ where: taskWhere }) : 0,
@@ -105,15 +107,19 @@ function buildTaskWhere(params: {
   categoryId: string
   approved?: boolean
   publisherId?: string
+  search?: string
 }) {
-  const { status, categoryId, approved, publisherId } = params
-  
-  return {
-    status: status !== "ALL" ? status as TaskStatus : undefined,
+  const { status, categoryId, approved, publisherId, search } = params
+  const base: any = {
+    status: status !== "ALL" ? (status as TaskStatus) : undefined,
     categoryId: categoryId !== "ALL" ? categoryId : undefined,
     approved: approved !== undefined ? approved : undefined,
     publisherId: publisherId !== undefined ? publisherId : undefined,
   }
+  if (search && search.trim()) {
+    base.title = { contains: search.trim() }
+  }
+  return base
 }
 
 /**
@@ -124,15 +130,19 @@ function buildAnnotationTaskWhere(params: {
   categoryId: string
   approved?: boolean
   publisherId?: string
+  search?: string
 }) {
-  const { status, categoryId, approved, publisherId } = params
-  
-  return {
-    status: status !== "ALL" ? status as AnnotationTaskStatus : undefined,
+  const { status, categoryId, approved, publisherId, search } = params
+  const base: any = {
+    status: status !== "ALL" ? (status as AnnotationTaskStatus) : undefined,
     categoryId: categoryId !== "ALL" ? categoryId : undefined,
     approved: approved !== undefined ? approved : undefined,
     publisherId: publisherId !== undefined ? publisherId : undefined,
   }
+  if (search && search.trim()) {
+    base.title = { contains: search.trim() }
+  }
+  return base
 }
 
 /**
