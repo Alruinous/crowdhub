@@ -60,8 +60,6 @@ export async function GET(
     try {
       // 数据文件内容可能是直接数组，也可能是JSON字符串
       const dataContent = task.dataFile.data;
-      console.log("数据文件内容类型:", typeof dataContent);
-      console.log("数据文件内容:", dataContent);
       
       if (Array.isArray(dataContent)) {
         dataRows = dataContent;
@@ -91,7 +89,7 @@ export async function GET(
     );
 
     console.log("总标注数量:", allAnnotations.length);
-    console.log("标注数据结构:", JSON.stringify(allAnnotations.slice(0, 2), null, 2));
+    // console.log("标注数据结构:", JSON.stringify(allAnnotations.slice(0, 2), null, 2));
 
     // 按数据行索引分组标注
     const annotationsByRowIndex: Record<number, any[]> = {};
@@ -119,6 +117,7 @@ export async function GET(
     const dimensionNames = Array.from(allDimensionNames);
 
     console.log("检测到的维度:", dimensionNames);
+    
 
     // 构建Excel数据
     const excelData = dataRows.map((row, index) => {
@@ -128,6 +127,7 @@ export async function GET(
 
       // 处理该行的所有标注
       const rowAnnotations = annotationsByRowIndex[index] || [];
+      // console.log("###",rowAnnotations)
       
       // 为每个维度收集分类路径
       const dimensionCategoryPaths: Record<string, string[]> = {};
@@ -140,13 +140,16 @@ export async function GET(
       rowAnnotations.forEach((annotation: any) => {
         if (annotation.selections && Array.isArray(annotation.selections)) {
           annotation.selections.forEach((selection: any) => {
+            console.log("###selection",selection)
             const dimensionName = selection.dimensionName || "默认分类";
             if (selection.pathNames) {
               try {
-                const pathNames = JSON.parse(selection.pathNames as string);
+                const pathNames = selection.pathNames;
+                console.log("解析的pathNames:", pathNames);
                 if (Array.isArray(pathNames) && pathNames.length > 0) {
                   // 将多级分类路径用"_"连接，不要空格
                   const categoryPath = pathNames.join("_");
+                  console.log("解析的categoryPath:", categoryPath);
                   dimensionCategoryPaths[dimensionName].push(categoryPath);
                 }
               } catch (error) {
@@ -160,15 +163,17 @@ export async function GET(
           });
         }
       });
+      console.log("维度分类路径:", dimensionCategoryPaths);
 
-      // 为每个维度创建单独的单元格
+      // 为每个维度创建单独的单元格（列名后缀“(分类)”避免与原数据字段重名）
       dimensionNames.forEach(dimensionName => {
         const categoryPaths = dimensionCategoryPaths[dimensionName];
+        const columnName = `${dimensionName}(分类)`;
         if (categoryPaths.length > 0) {
           // 将同一维度下的多个分类路径用";"分隔
-          rowData[dimensionName] = categoryPaths.join(";");
+          rowData[columnName] = categoryPaths.join(";");
         } else {
-          rowData[dimensionName] = "未标注";
+          rowData[columnName] = "未标注";
         }
       });
 

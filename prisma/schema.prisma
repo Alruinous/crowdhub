@@ -285,7 +285,6 @@ model Annotation {
   id          String   @id @default(cuid())
   rowIndex    Int                                      // 数据行索引
   rowData     Json                                     // 原始行数据 (JSON)
-  labels      Json                                     // 标注结果 (JSON) - 兼容旧格式
   status      String   @default("PENDING")            // 标注状态
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

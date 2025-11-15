@@ -79,7 +79,7 @@ function analyzeCategoryTree(categories: LabelCategory[], currentLevel: number =
 
 export default function AnnotationPage({ params }: { params: Promise<{ id: string }> }) {
   // 本地开关：是否允许“新增一个分类”操作
-  const ENABLE_ADD_CATEGORY = false
+  const ENABLE_ADD_CATEGORY = true
 
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -197,19 +197,13 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
               pathIds: []
             }))
           }
-          
-          // 确保每个维度至少有一个空白分类选择
-          const dimensionSelections = new Map<string, AnnotationSelection>()
-          
-          // 首先添加已有的选择
-          selections.forEach(selection => {
-            dimensionSelections.set(selection.dimensionName, selection)
-          })
-          
-          // 然后为缺失的维度添加空白选择
+
+          // 允许同一维度存在多条选择：仅在缺少该维度时补一条空白
+          const mergedSelections: AnnotationSelection[] = [...selections]
           labelDimensions.forEach(dimension => {
-            if (!dimensionSelections.has(dimension.name)) {
-              dimensionSelections.set(dimension.name, {
+            const hasThisDimension = mergedSelections.some(sel => sel.dimensionName === dimension.name)
+            if (!hasThisDimension) {
+              mergedSelections.push({
                 dimensionName: dimension.name,
                 pathIds: []
               })
@@ -219,7 +213,7 @@ export default function AnnotationPage({ params }: { params: Promise<{ id: strin
           initial[row.index] = {
             rowIndex: row.index,
             rowData: row.data,
-            selections: Array.from(dimensionSelections.values()),
+            selections: mergedSelections,
             status: existing?.status || "PENDING",
           }
         })

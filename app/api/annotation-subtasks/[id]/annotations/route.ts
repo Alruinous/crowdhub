@@ -81,7 +81,6 @@ export async function POST(
             data: {
               rowIndex: ann.rowIndex,
               rowData: ann.rowData,
-              labels: { paths: allSelections.map((s) => s.pathIds) }, // 简化labels结构
               status: ann.status || "PENDING",
               subtaskId,
               annotatorId: session.user.id,
@@ -164,7 +163,6 @@ export async function GET(
       rowIndex: a.rowIndex,
       rowData: a.rowData,
       status: a.status,
-      labels: a.labels, // 兼容旧结构
       selections: a.selections.map((s) => ({
         pathIds: s.pathIds as unknown as string[],
         pathNames: (s.pathNames as unknown as string[] | undefined) || undefined,
