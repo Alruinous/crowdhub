@@ -45,7 +45,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     approved: true,
     page,
     limit,
-    taskType: taskTypeParam as "ALL" | "科普任务" | "标注任务",
+    taskType: taskTypeParam as "ALL" | "task" | "annotationTask",
     search: searchParam
   })
 
@@ -54,7 +54,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     status: statusParam,
     categoryId: categoryParam,
     approved: true,
-    taskType: taskTypeParam as "ALL" | "科普任务" | "标注任务",
+    taskType: taskTypeParam as "ALL" | "task" | "annotationTask",
     search: searchParam
   })
 

@@ -64,11 +64,21 @@ export function LoginForm() {
         return;
       }
 
+      // 获取用户信息以确定角色
+      const userResponse = await fetch("/api/users/me");
+      const userData = await userResponse.json();
+
       router.refresh();
       // 使用 setTimeout 确保路由跳转在下一个事件循环中执行
       setTimeout(() => {
-        console.log('普通登录跳转到: /dashboard')
-        router.push("/dashboard");
+        // 根据用户角色跳转到不同页面
+        if (userData.role === "ADMIN") {
+          console.log('管理员跳转到: /admin/dashboard')
+          router.push("/admin/dashboard");
+        } else {
+          console.log('普通用户跳转到: /dashboard')
+          router.push("/dashboard");
+        }
       }, 100)
     } catch (error) {
       toast({
@@ -178,7 +188,7 @@ export function LoginForm() {
           </form>
         </Form>
 
-        <div className="relative my-4">
+        {/* <div className="relative my-4">
           <div className="absolute inset-0 flex items-center">
             <Separator />
           </div>
@@ -187,9 +197,9 @@ export function LoginForm() {
               示例账号快捷登录
             </span>
           </div>
-        </div>
+        </div> */}
 
-        <div className="grid grid-cols-3 gap-2">
+        {/* <div className="grid grid-cols-3 gap-2">
           <Button
             variant="outline"
             className="flex flex-col items-center justify-center h-20 space-y-1 hover:bg-blue-50 hover:text-blue-600 transition-colors"
@@ -217,7 +227,7 @@ export function LoginForm() {
             <Hammer className="h-6 w-6 text-purple-500" />
             <span className="text-xs">接单者</span>
           </Button>
-        </div>
+        </div> */}
       </div>
     </div>
   );

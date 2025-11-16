@@ -17,7 +17,7 @@ export interface BaseTask {
   publisher: { name: string }
   category?: { name: string } | null
   _count?: { subtasks: number }
-  taskType: "科普任务" | "标注任务"
+  taskType: "task" | "annotationTask"
 }
 
 // 统一的任务类型
@@ -30,8 +30,9 @@ export interface TaskQueryParams {
   approved?: boolean
   page?: number
   limit?: number
-  taskType?: "ALL" | "科普任务" | "标注任务"
+  taskType?: "ALL" | "task" | "annotationTask"
   publisherId?: string
+  publisher?: string // 新增：发布者名称模糊搜索
   search?: string // 新增：标题模糊搜索
 }
 
@@ -51,12 +52,12 @@ export const TASK_STATUS_MAP = {
 
 // 任务类型映射
 export const TASK_TYPE_MAP = {
-  "科普任务": {
+  "task": {
     label: "科普任务",
     color: "bg-blue-100 text-blue-800 border-blue-200",
     icon: "FileText"
   },
-  "标注任务": {
+  "annotationTask": {
     label: "标注任务", 
     color: "bg-green-100 text-green-800 border-green-200",
     icon: "Database"

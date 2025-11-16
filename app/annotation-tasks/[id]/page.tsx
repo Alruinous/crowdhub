@@ -12,6 +12,7 @@ import Link from "next/link";
 import { AnnotationTaskStatus } from "@prisma/client";
 import { ClaimButton } from "@/components/annotation/claim-button";
 import { ExportButton } from "@/components/annotation/export-button";
+import { DeleteTaskButton } from "@/components/annotation/delete-task-button";
 
 interface AnnotationTaskPageProps {
   params: {
@@ -78,6 +79,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           {task.publisher.id === session.user.id && (
             <>
               <ExportButton taskId={taskId} taskTitle={task.title} />
+              <DeleteTaskButton taskId={taskId} />
               {/* <Button asChild variant="outline">
                 <Link href={`/annotation-tasks/${taskId}/edit`}>
                   <Edit className="h-4 w-4" />

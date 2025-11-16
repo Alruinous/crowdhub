@@ -15,7 +15,12 @@ export default async function LoginPage() {
   const session = await getServerSession(authOptions);
 
   if (session) {
-    redirect("/dashboard");
+    // 根据用户角色跳转到不同页面
+    if (session.user.role === "ADMIN") {
+      redirect("/admin/dashboard");
+    } else {
+      redirect("/dashboard");
+    }
   }
 
   return (

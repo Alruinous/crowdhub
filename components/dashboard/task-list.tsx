@@ -1,5 +1,8 @@
+"use client"
+
 import { formatDistanceToNow } from "date-fns";
 import { zhCN } from "date-fns/locale";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +14,8 @@ import {
 } from "@/components/ui/card";
 import Link from "next/link";
 import { Eye, FileText, Database } from "lucide-react";
+import { TASK_TYPE_MAP } from "@/lib/task-types";
+import { SubmitAnnotationButton } from "@/components/annotation/submit-annotation-button";
 
 interface TaskListProps {
   tasks: any[];
@@ -21,9 +26,13 @@ interface TaskListProps {
   };
   // 额外需要在分页链接中保留的查询参数（例如 search、status 等）
   query?: Record<string, string>;
+  // 是否显示提交按钮（仅对工作者的标注任务有效）
+  showSubmitButton?: boolean;
 }
 
-export function TaskList({ tasks, userRole, pagination, query }: TaskListProps) {
+export function TaskList({ tasks, userRole, pagination, query, showSubmitButton = false }: TaskListProps) {
+  const router = useRouter();
+  
   // 对于工作者用户，传入的是子任务数组，需要按任务去重
   let displayTasks = tasks;
   
@@ -75,9 +84,9 @@ export function TaskList({ tasks, userRole, pagination, query }: TaskListProps) 
   // Helper function to get task type badge color
   const getTaskTypeColor = (taskType: string) => {
     switch (taskType) {
-      case "科普任务":
+      case "task":
         return "bg-blue-100 text-blue-800 border-blue-200";
-      case "标注任务":
+      case "annotationTask":
         return "bg-green-100 text-green-800 border-green-200";
       default:
         return "bg-gray-100 text-gray-800 border-gray-200";
@@ -87,9 +96,9 @@ export function TaskList({ tasks, userRole, pagination, query }: TaskListProps) 
   // Helper function to get task type icon
   const getTaskTypeIcon = (taskType: string) => {
     switch (taskType) {
-      case "科普任务":
+      case "task":
         return <FileText className="h-4 w-4" />;
-      case "标注任务":
+      case "annotationTask":
         return <Database className="h-4 w-4" />;
       default:
         return <FileText className="h-4 w-4" />;
@@ -107,15 +116,15 @@ export function TaskList({ tasks, userRole, pagination, query }: TaskListProps) 
         const taskStatus = taskData.status;
         const taskCategory = taskData.category?.name || "未分类";
         const taskDate = new Date(taskData.createdAt || Date.now());
-        const taskType = taskData.taskType || "科普任务"; // 默认为科普任务
+        const taskType = taskData.taskType || "task"; // 默认为task
 
         // 根据任务类型生成正确的链接
-        const taskLink = taskType === "标注任务" 
+        const taskLink = taskType === "annotationTask" 
           ? `/annotation-tasks/${taskId}`
           : `/tasks/${taskId}`;
 
         return (
-          <Card key={isSubtask ? `${taskId}-${task.id}` : taskId}>
+          <Card key={isSubtask ? `${taskId}-${task.id}` : taskId} className="flex flex-col">
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between">
                 <CardTitle className="text-lg">{taskTitle}</CardTitle>
@@ -126,7 +135,7 @@ export function TaskList({ tasks, userRole, pagination, query }: TaskListProps) 
                   >
                     <span className="flex items-center gap-1">
                       {getTaskTypeIcon(taskType)}
-                      {taskType}
+                      {TASK_TYPE_MAP[taskType as keyof typeof TASK_TYPE_MAP]?.label || taskType}
                     </span>
                   </Badge>
                   {/* 显示审批状态 - 审核中的任务只显示审核中，不显示状态 */}
@@ -148,7 +157,7 @@ export function TaskList({ tasks, userRole, pagination, query }: TaskListProps) 
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1">
               <div className="grid gap-2">
                 <div className="text-sm">
                   <span className="font-medium">分类：</span>
@@ -166,13 +175,17 @@ export function TaskList({ tasks, userRole, pagination, query }: TaskListProps) 
                 </div>
               </div>
             </CardContent>
-            <CardFooter>
+            <CardFooter className="mt-auto flex justify-between items-center gap-2">
               <Button asChild variant="outline" size="sm">
                 <Link href={taskLink}>
                   <Eye className="mr-2 h-4 w-4" />
                   查看详情
                 </Link>
               </Button>
+              {/* 对于工作者，在标注任务卡片上显示提交按钮 */}
+              {showSubmitButton && userRole === "WORKER" && taskType === "annotationTask" && (
+                <SubmitAnnotationButton taskId={taskId} />
+              )}
             </CardFooter>
           </Card>
         );

@@ -16,25 +16,26 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
     limit = 10,
     taskType = "ALL",
     publisherId = undefined,
+    publisher = undefined,
     search = undefined
   } = params
 
   const skip = (page - 1) * limit
 
   // 构建查询条件
-  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, search })
-  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, search })
+  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, publisher, search })
+  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, publisher, search })
 
   // 并行查询两种任务
   // 当请求类型为 ALL 时，需要“跨两张表的统一分页”逻辑：
   // 不能分别 skip/take 后再合并，否则会出现两边独立分页、合并后总数不足的问题。
   // 方案：各自查询前 (page * limit) 条，合并排序后再在内存里 slice 需要的区间。
   const [tasks, annotationTasks] = await Promise.all([
-    taskType !== "标注任务"
+    taskType !== "annotationTask"
       ? db.task.findMany({
           where: taskWhere,
           orderBy: { createdAt: "desc" },
-          // 如果只查科普任务仍使用数据库分页；如果是 ALL 则取前 page*limit 条
+          // 如果只查task仍使用数据库分页；如果是 ALL 则取前 page*limit 条
           skip: taskType === "ALL" ? 0 : skip,
           take: taskType === "ALL" ? page * limit : limit,
           include: {
@@ -44,7 +45,7 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
           },
         })
       : [],
-    taskType !== "科普任务"
+    taskType !== "task"
       ? db.annotationTask.findMany({
           where: annotationTaskWhere,
           orderBy: { createdAt: "desc" },
@@ -61,8 +62,8 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
 
   // 合并并标记类型
   let unifiedTasks: UnifiedTask[] = [
-    ...tasks.map((task) => ({ ...task, taskType: "科普任务" as const })),
-    ...annotationTasks.map((task) => ({ ...task, taskType: "标注任务" as const })),
+    ...tasks.map((task) => ({ ...task, taskType: "task" as const })),
+    ...annotationTasks.map((task) => ({ ...task, taskType: "annotationTask" as const })),
   ]
 
   unifiedTasks = unifiedTasks.sort(
@@ -87,15 +88,16 @@ export async function getTaskStats(params: Omit<TaskQueryParams, 'page' | 'limit
     approved = undefined,
     taskType = "ALL",
     search = undefined,
-    publisherId = undefined
+    publisherId = undefined,
+    publisher = undefined
   } = params
 
-  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, search })
-  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, search })
+  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, publisher, search })
+  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, publisher, search })
 
   const [taskCount, annotationTaskCount] = await Promise.all([
-    taskType !== "标注任务" ? db.task.count({ where: taskWhere }) : 0,
-    taskType !== "科普任务" ? db.annotationTask.count({ where: annotationTaskWhere }) : 0
+    taskType !== "annotationTask" ? db.task.count({ where: taskWhere }) : 0,
+    taskType !== "task" ? db.annotationTask.count({ where: annotationTaskWhere }) : 0
   ])
 
   return {
@@ -113,9 +115,10 @@ function buildTaskWhere(params: {
   categoryId: string
   approved?: boolean
   publisherId?: string
+  publisher?: string
   search?: string
 }) {
-  const { status, categoryId, approved, publisherId, search } = params
+  const { status, categoryId, approved, publisherId, publisher, search } = params
   const base: any = {
     status: status !== "ALL" ? (status as TaskStatus) : undefined,
     categoryId: categoryId !== "ALL" ? categoryId : undefined,
@@ -124,6 +127,11 @@ function buildTaskWhere(params: {
   }
   if (search && search.trim()) {
     base.title = { contains: search.trim() }
+  }
+  if (publisher && publisher.trim()) {
+    base.publisher = {
+      name: { contains: publisher.trim() }
+    }
   }
   return base
 }
@@ -136,9 +144,10 @@ function buildAnnotationTaskWhere(params: {
   categoryId: string
   approved?: boolean
   publisherId?: string
+  publisher?: string
   search?: string
 }) {
-  const { status, categoryId, approved, publisherId, search } = params
+  const { status, categoryId, approved, publisherId, publisher, search } = params
   const base: any = {
     status: status !== "ALL" ? (status as AnnotationTaskStatus) : undefined,
     categoryId: categoryId !== "ALL" ? categoryId : undefined,
@@ -148,6 +157,11 @@ function buildAnnotationTaskWhere(params: {
   if (search && search.trim()) {
     base.title = { contains: search.trim() }
   }
+  if (publisher && publisher.trim()) {
+    base.publisher = {
+      name: { contains: publisher.trim() }
+    }
+  }
   return base
 }
 
@@ -155,7 +169,7 @@ function buildAnnotationTaskWhere(params: {
  * 根据任务类型生成详情页面链接
  */
 export function getTaskDetailLink(task: UnifiedTask): string {
-  return task.taskType === "标注任务" 
+  return task.taskType === "annotationTask" 
     ? `/annotation-tasks/${task.id}`
     : `/tasks/${task.id}`
 }

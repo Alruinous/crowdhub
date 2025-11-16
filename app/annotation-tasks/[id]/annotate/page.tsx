@@ -133,6 +133,7 @@ export default function AnnotationPage({
   >({});
   const [currentDimensionIndex, setCurrentDimensionIndex] = useState(0);
   const [searchQueries, setSearchQueries] = useState<Record<string, string>>({});
+  const [openSelects, setOpenSelects] = useState<Record<string, boolean>>({});
 
   const getSearchKey = (dimensionName: string, selIdx: number, level: number) =>
     `${dimensionName}|${selIdx}|${level}`;
@@ -488,13 +489,16 @@ export default function AnnotationPage({
         annotations: Object.values(annotations).map((a) => {
           const filtered = a.selections
             .filter((s) => {
-              const depth = dimensionDepths[s.dimensionName] || 0;
-              // 仅保存达到最终级的完整路径；前缀行与未完成行不保存
-              return (
-                depth > 0 &&
-                s.pathIds.length === depth &&
-                s.pathIds.every((id) => id && id !== "unselected")
-              );
+              // 检查路径是否有效：至少有一级且所有ID都有效
+              if (s.pathIds.length === 0 || !s.pathIds.every((id) => id && id !== "unselected")) {
+                return false;
+              }
+              // 获取路径中最后一个节点
+              const lastId = s.pathIds[s.pathIds.length - 1];
+              const lastCategory = findCategoryById(lastId);
+              // 如果找到节点，检查是否是叶子节点（没有子节点）
+              // 叶子节点才是完整的选择，应该保存
+              return lastCategory && (!lastCategory.children || lastCategory.children.length === 0);
             })
             .map((s) => ({
               dimensionName: s.dimensionName,
@@ -522,6 +526,7 @@ export default function AnnotationPage({
       if (res.ok) {
         toast({ title: "保存成功", description: "标注数据已保存" });
         setTimeout(() => router.push(`/annotation-tasks/${taskId}`), 100);
+        // router.push(`/annotation-tasks/${taskId}`);
       } else {
         const err = await res.json();
         throw new Error(err.message || "保存失败");
@@ -895,50 +900,33 @@ export default function AnnotationPage({
                                             [searchKey]: e.target.value,
                                           }))
                                         }
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            // 展开当前选择卡并打开对应的 Select 下拉
+                                            setExpandedSelections((prev) => ({ ...prev, [selIdx]: true }));
+                                            setOpenSelects((prev) => ({ ...prev, [searchKey]: true }));
+                                          }
+                                        }}
                                         placeholder={`搜索${getCategoryTypeName(level, sel.dimensionName)}`}
                                         className="h-9 px-3 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-input w-full"
                                       />
-                                      {(!disabled && term) && (
-                                        <div className="absolute left-0 top-full z-10 mt-1 w-full max-h-56 overflow-auto rounded-md border bg-muted/70 backdrop-blur-sm shadow-sm p-1">
-                                          {cats.length > 0 ? (
-                                            <div className="grid grid-cols-2 gap-1">
-                                              {cats.map((c) => {
-                                                const checked = String(selected) === String(c.id);
-                                                return (
-                                                  <button
-                                                    type="button"
-                                                    key={String(c.id)}
-                                                    onClick={() => {
-                                                      handleLevelChange(selIdx, level, String(c.id));
-                                                      // 选择后清空搜索词以收起下拉
-                                                      setSearchQueries((prev) => ({
-                                                        ...prev,
-                                                        [searchKey]: "",
-                                                      }));
-                                                    }}
-                                                    className={`text-left rounded border px-2 py-1 text-xs transition-colors ${checked ? "bg-primary/20 text-primary border-primary/50 hover:bg-primary/25" : "text-muted-foreground hover:bg-muted border-input"}`}
-                                                  >
-                                                    {c.name}
-                                                  </button>
-                                                );
-                                              })}
-                                            </div>
-                                          ) : (
-                                            <div className="text-xs text-muted-foreground px-1 py-1">
-                                              无匹配结果
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
                                     </div>
                                   )}
                                 </div>
                                 <Select
                                   value={selected}
-                                  onValueChange={(v) =>
-                                    handleLevelChange(selIdx, level, v)
-                                  }
+                                  onValueChange={(v) => {
+                                    handleLevelChange(selIdx, level, v);
+                                    // 选择后关闭下拉并清空搜索
+                                    setOpenSelects((prev) => ({ ...prev, [searchKey]: false }));
+                                    setSearchQueries((prev) => ({ ...prev, [searchKey]: "" }));
+                                  }}
                                   disabled={disabled}
+                                  open={openSelects[searchKey]}
+                                  onOpenChange={(open) =>
+                                    setOpenSelects((prev) => ({ ...prev, [searchKey]: open }))
+                                  }
                                 >
                                   <SelectTrigger className="w-full">
                                     <SelectValue

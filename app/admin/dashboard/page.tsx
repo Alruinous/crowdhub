@@ -8,12 +8,31 @@ import { AdminStats } from "@/components/admin/admin-stats"
 import { PendingApprovals } from "@/components/admin/pending-approvals"
 import { getUnifiedTasks, getTaskStats } from "@/lib/task-utils"
 
-export default async function AdminDashboardPage() {
+interface AdminDashboardPageProps {
+  searchParams: Promise<{
+    taskType?: string
+    publisher?: string
+    search?: string
+    page?: string
+  }>
+}
+
+export default async function AdminDashboardPage({ searchParams }: AdminDashboardPageProps) {
   const session = await getServerSession(authOptions)
 
   if (!session || session.user.role !== "ADMIN") {
     redirect("/login")
   }
+
+  // Await searchParams before using them
+  const resolvedSearchParams = await searchParams
+  
+  // Parse search params
+  const taskTypeParam = resolvedSearchParams.taskType || "ALL"
+  const publisherParam = resolvedSearchParams.publisher || ""
+  const searchParam = resolvedSearchParams.search || ""
+  const page = Number.parseInt(resolvedSearchParams.page || "1")
+  const limit = 6
 
   // Get system stats
   const [totalUsers, allTasksStats, pendingTasksStats, completedTasksStats] = await Promise.all([
@@ -30,11 +49,25 @@ export default async function AdminDashboardPage() {
     completedTasks: completedTasksStats.total, // 已完成任务总数
   }
 
-  // Get tasks pending approval (both task and annotation task)
+  // Get tasks pending approval with filters and pagination
   const pendingTasks = await getUnifiedTasks({
-    approved: false
-    // 不设置 limit，显示所有待审批任务
+    approved: false,
+    taskType: taskTypeParam as "ALL" | "task" | "annotationTask",
+    publisher: publisherParam,
+    search: searchParam,
+    page,
+    limit
   })
+
+  // Get filtered stats for pagination
+  const filteredStats = await getTaskStats({
+    approved: false,
+    taskType: taskTypeParam as "ALL" | "task" | "annotationTask",
+    publisher: publisherParam,
+    search: searchParam
+  })
+
+  const totalPages = Math.ceil(filteredStats.total / limit)
 
   return (
     <AdminShell>
@@ -44,7 +77,18 @@ export default async function AdminDashboardPage() {
 
       <div className="mt-8">
         <h2 className="text-xl font-semibold mb-4">待审批任务</h2>
-        <PendingApprovals tasks={pendingTasks} />
+        <PendingApprovals 
+          tasks={pendingTasks} 
+          pagination={{
+            currentPage: page,
+            totalPages
+          }}
+          query={{
+            ...(taskTypeParam !== "ALL" ? { taskType: taskTypeParam } : {}),
+            ...(publisherParam ? { publisher: publisherParam } : {}),
+            ...(searchParam ? { search: searchParam } : {})
+          }}
+        />
       </div>
     </AdminShell>
   )

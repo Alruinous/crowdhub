@@ -8,8 +8,9 @@ import { db } from "@/lib/db"
 import { UserStats } from "@/components/dashboard/user-stats"
 import { getUnifiedTasks, getTaskStats } from "@/lib/task-utils"
 import { TaskSearch } from "@/components/dashboard/task-search"
+import { TaskTypeFilter } from "@/components/dashboard/task-type-filter"
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ page?: string; search?: string }> }) {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ page?: string; search?: string; taskType?: string }> }) {
   const session = await getServerSession(authOptions)
 
   if (!session) {
@@ -29,6 +30,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           publishedTasks: true,
           publishedAnnotationTasks: true,  // 添加标注任务统计
           claimedTasks: true,
+          claimedAnnotationSubtasks: true, // 添加认领的标注子任务统计
         },
       },
     },
@@ -41,6 +43,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const resolvedSearchParams = await searchParams
   const currentPage = Number.parseInt(resolvedSearchParams.page || "1") || 1
   const searchValue = resolvedSearchParams.search || ""
+  const taskTypeValue = resolvedSearchParams.taskType || "ALL"
   const pageLimit = 6 // 每页显示 6 条（3 列栅格整行两行）
 
   let pagination: { currentPage: number; totalPages: number } | undefined
@@ -50,7 +53,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     const stats = await getTaskStats({
       publisherId: session.user.id,
       approved: undefined,
-      taskType: "ALL",
+      taskType: taskTypeValue as "ALL" | "task" | "annotationTask",
       search: searchValue || undefined,
     })
     const totalPages = Math.max(1, Math.ceil(stats.total / pageLimit))
@@ -60,7 +63,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       approved: undefined,
       page: currentPage,
       limit: pageLimit,
-      taskType: "ALL",
+      taskType: taskTypeValue as "ALL" | "task" | "annotationTask",
       search: searchValue || undefined,
     })
   } else if (session.user.role === "WORKER") {
@@ -107,11 +110,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ...claimedTasks,
       ...claimedAnnotationTasks.map(subtask => ({
         ...subtask,
-        task: { ...subtask.task, taskType: "标注任务" }
+        task: { ...subtask.task, taskType: "annotationTask" }
       }))
     ]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, pageLimit) // 工作者仍限制展示最新若干，可后续改为分页
+      .slice(0, pageLimit) // 接单者仍限制展示最新若干，可后续改为分页
   }
 
   return (
@@ -126,13 +129,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <div className="mt-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold">我发布的任务</h2>
-            <TaskSearch placeholder="搜索我发布的任务" />
+            <div className="flex items-center gap-3">
+              <TaskTypeFilter />
+              <TaskSearch placeholder="搜索我发布的任务" />
+            </div>
           </div>
             <TaskList
               tasks={tasks}
               userRole={session.user.role}
               pagination={pagination}
-              query={searchValue ? { search: searchValue } : undefined}
+              query={{
+                ...(searchValue ? { search: searchValue } : {}),
+                ...(taskTypeValue !== "ALL" ? { taskType: taskTypeValue } : {})
+              }}
             />
         </div>
       ) : (
@@ -146,6 +155,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             tasks={tasks}
             userRole={session.user.role}
             query={searchValue ? { search: searchValue } : undefined}
+            showSubmitButton={true}
           />
         </div>
       )}
