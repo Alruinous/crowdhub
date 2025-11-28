@@ -56,25 +56,46 @@ export async function POST(
 
       const created = await Promise.all(
         annotations.map(async (ann) => {
-          // 处理标注选择数据
+          // 处理标注选择数据（仅保留叶子节点，去重并移除前缀路径）
           const normalizedSelections: AnnotationSelectionDTO[] = []
 
           if (Array.isArray(ann.selections)) {
             for (const s of ann.selections) {
-              if (s && Array.isArray(s.pathIds)) {
-                normalizedSelections.push({ 
-                  pathIds: s.pathIds, 
+              if (s && Array.isArray(s.pathIds) && s.pathIds.length > 0) {
+                normalizedSelections.push({
+                  pathIds: [...s.pathIds],
                   pathNames: s.pathNames,
-                  dimensionName: s.dimensionName || "默认分类"
+                  dimensionName: s.dimensionName || "默认分类",
                 })
               }
             }
           }
 
-          // 保存所有分类选择，包括同一维度下的多个分类
-          const allSelections = normalizedSelections.map((selection, index) => ({
+          // 去重（按 维度名 + 路径）
+          const uniqueByKey = new Map<string, AnnotationSelectionDTO>()
+          for (const s of normalizedSelections) {
+            const key = `${s.dimensionName || "默认分类"}|${s.pathIds.join('/')}`
+            if (!uniqueByKey.has(key)) uniqueByKey.set(key, s)
+          }
+          const uniqueSelections = Array.from(uniqueByKey.values())
+
+          // 仅保留叶子（移除被其他选择当作前缀的路径）
+          const leafOnly = uniqueSelections.filter((a) => {
+            return !uniqueSelections.some((b) => {
+              if (a === b) return false
+              if ((a.dimensionName || "默认分类") !== (b.dimensionName || "默认分类")) return false
+              if (b.pathIds.length <= a.pathIds.length) return false
+              // b 以 a 为前缀
+              for (let i = 0; i < a.pathIds.length; i++) {
+                if (a.pathIds[i] !== b.pathIds[i]) return false
+              }
+              return true
+            })
+          })
+
+          const allSelections = leafOnly.map((selection) => ({
             ...selection,
-            dimensionName: selection.dimensionName || "默认分类"
+            dimensionName: selection.dimensionName || "默认分类",
           }))
 
           const createdAnn = await tx.annotation.create({
@@ -87,9 +108,9 @@ export async function POST(
               selections: {
                 create: allSelections.map((s, index) => ({
                   pathIds: s.pathIds as unknown as any,
-                  pathNames: s.pathNames as unknown as any,
+                  pathNames: (s.pathNames as unknown as any) ?? undefined,
                   dimensionName: s.dimensionName || "默认分类",
-                  dimensionIndex: index, // 添加维度索引
+                  dimensionIndex: index,
                 })),
               },
             },

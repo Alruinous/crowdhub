@@ -30,7 +30,23 @@ export async function POST(
       )
     }
 
-    // 更新所有认领的子任务状态为 PENDING_REVIEW
+    // 检查是否已提交（所有认领的子任务均为待审核）
+    const statusCounts = await db.annotationSubtask.groupBy({
+      by: ["status"],
+      where: { taskId, workerId: session.user.id },
+      _count: { _all: true },
+    })
+
+    const pendingCount = statusCounts.find((c) => c.status === "PENDING_REVIEW")?._count._all || 0
+    const actionableCount = statusCounts
+      .filter((c) => c.status === "IN_PROGRESS" || c.status === "CLAIMED")
+      .reduce((acc, c) => acc + c._count._all, 0)
+
+    if (actionableCount === 0 && pendingCount > 0) {
+      return NextResponse.json({ message: "已提交审核，无法重复提交" }, { status: 409 })
+    }
+
+    // 更新所有进行中或已认领的子任务状态为 PENDING_REVIEW
     await db.annotationSubtask.updateMany({
       where: {
         taskId,

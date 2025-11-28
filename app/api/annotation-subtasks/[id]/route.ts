@@ -16,11 +16,14 @@ export async function GET(
         title: true,
         description: true,
         status: true,
+        points: true,
+        workerId: true,
         startRow: true,
         endRow: true,
         rowCount: true,
         createdAt: true,
         updatedAt: true,
+        taskId: true,
       }
     })
 

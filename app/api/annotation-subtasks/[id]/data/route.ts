@@ -32,8 +32,11 @@ export async function GET(
       return NextResponse.json({ message: "标注子任务不存在" }, { status: 404 })
     }
 
-    // 验证用户是否认领了这个子任务
-    if (subtask.workerId !== session.user.id) {
+    // 验证访问权限：接单者或发布者或管理员
+    const isWorker = subtask.workerId === session.user.id
+    const isPublisher = subtask.task.publisherId === session.user.id
+    const isAdmin = session.user.role === "ADMIN"
+    if (!isWorker && !isPublisher && !isAdmin) {
       return NextResponse.json({ message: "您没有权限访问此子任务的数据" }, { status: 403 })
     }
 

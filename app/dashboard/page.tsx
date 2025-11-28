@@ -36,6 +36,31 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     },
   })
 
+  // 统计已完成任务数量
+  const completedTasksCount = session.user.role === "PUBLISHER"
+    ? await db.task.count({
+        where: {
+          publisherId: session.user.id,
+          status: "COMPLETED",
+        },
+      }) + await db.annotationTask.count({
+        where: {
+          publisherId: session.user.id,
+          status: "COMPLETED",
+        },
+      })
+    : await db.subtask.count({
+        where: {
+          workerId: session.user.id,
+          status: "COMPLETED",
+        },
+      }) + await db.annotationSubtask.count({
+        where: {
+          workerId: session.user.id,
+          status: "COMPLETED",
+        },
+      })
+
   // Get tasks based on user role
   let tasks: any[] = []
 
@@ -122,7 +147,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <DashboardHeader heading="仪表盘" text="查看您的任务和统计信息" />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <UserStats user={user} />
+        <UserStats user={user} completedTasksCount={completedTasksCount} />
       </div>
 
       {session.user.role === "PUBLISHER" ? (

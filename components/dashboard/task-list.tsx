@@ -33,30 +33,26 @@ interface TaskListProps {
 export function TaskList({ tasks, userRole, pagination, query, showSubmitButton = false }: TaskListProps) {
   const router = useRouter();
   
-  // 对于工作者用户，传入的是子任务数组，需要按任务去重
+  // 对于工作者用户，传入的是子任务数组，需要按任务分组以聚合状态
   let displayTasks = tasks;
+  let taskSubtasksMap = new Map<string, any[]>();
   
   if (userRole === "WORKER") {
-    // 工作者：按任务ID去重，只显示每个任务的最新子任务
-    const taskMap = new Map();
-    
+    // 工作者：按任务ID分组所有子任务
     tasks.forEach(task => {
-      // 工作者传入的是子任务，包含task字段
       if ("task" in task) {
         const taskId = task.task.id;
-        const existingTask = taskMap.get(taskId);
-        
-        // 如果任务不存在，或者当前子任务更新，则更新
-        if (!existingTask || new Date(task.createdAt) > new Date(existingTask.createdAt)) {
-          taskMap.set(taskId, task);
-        }
+        if (!taskSubtasksMap.has(taskId)) taskSubtasksMap.set(taskId, []);
+        taskSubtasksMap.get(taskId)!.push(task);
       } else {
-        // 如果是任务对象（不是子任务），直接添加到显示列表
-        taskMap.set(task.id, task);
+        const taskId = task.id;
+        if (!taskSubtasksMap.has(taskId)) taskSubtasksMap.set(taskId, [task]);
       }
     });
-    
-    displayTasks = Array.from(taskMap.values());
+    // 每组选择最新子任务作为卡片展示基准
+    displayTasks = Array.from(taskSubtasksMap.entries()).map(([_, subtasks]) =>
+      subtasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+    );
   }
 
   if (displayTasks.length === 0) {
@@ -118,6 +114,27 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
         const taskDate = new Date(taskData.createdAt || Date.now());
         const taskType = taskData.taskType || "task"; // 默认为task
 
+        // 聚合状态徽标逻辑
+        let aggregatedStatusText: string | null = null;
+        let aggregatedStatusColor: string = getStatusColor(taskStatus);
+        if (userRole === "WORKER" && taskSubtasksMap.has(taskId)) {
+          const statuses = (taskSubtasksMap.get(taskId) || []).map(st => st.status as string);
+          // 规则：若存在进行中则显示进行中；若全部完成则显示已完成；否则显示待审核
+          const hasInProgress = statuses.some(s => ["IN_PROGRESS", "CLAIMED", "OPEN", "REJECTED"].includes(s));
+          const allCompleted = statuses.length > 0 && statuses.every(s => s === "COMPLETED");
+          const showPending = !hasInProgress && !allCompleted; // 其余情况视为待审核
+          if (hasInProgress) {
+            aggregatedStatusText = "进行中";
+            aggregatedStatusColor = "bg-blue-500";
+          } else if (allCompleted) {
+            aggregatedStatusText = "已完成";
+            aggregatedStatusColor = "bg-purple-500";
+          } else if (showPending) {
+            aggregatedStatusText = "待审核";
+            aggregatedStatusColor = "bg-orange-500";
+          }
+        }
+
         // 根据任务类型生成正确的链接
         const taskLink = taskType === "annotationTask" 
           ? `/annotation-tasks/${taskId}`
@@ -138,20 +155,12 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
                       {TASK_TYPE_MAP[taskType as keyof typeof TASK_TYPE_MAP]?.label || taskType}
                     </span>
                   </Badge>
-                  {/* 显示审批状态 - 审核中的任务只显示审核中，不显示状态 */}
-                  {!taskData.approved ? (
-                    <Badge className="bg-yellow-500">
-                      审核中
-                    </Badge>
+                  {/* 发布者显示任务状态；接单者显示聚合状态 */}
+                  {userRole === "WORKER" && aggregatedStatusText ? (
+                    <Badge className={aggregatedStatusColor}>{aggregatedStatusText}</Badge>
                   ) : (
                     <Badge className={getStatusColor(taskStatus)}>
-                      {taskStatus === "OPEN"
-                        ? "招募中"
-                        : taskStatus === "IN_PROGRESS"
-                        ? "进行中"
-                        : taskStatus === "COMPLETED"
-                        ? "已完成"
-                        : taskStatus}
+                      {taskStatus === "OPEN" ? "招募中" : taskStatus === "IN_PROGRESS" ? "进行中" : taskStatus === "COMPLETED" ? "已完成" : taskStatus}
                     </Badge>
                   )}
                 </div>

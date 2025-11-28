@@ -45,6 +45,9 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           worker: {
             select: { id: true, name: true },
           },
+          annotations: {
+            select: { status: true },
+          },
         },
       },
     },
@@ -237,7 +240,10 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
         <h2 className="text-xl font-semibold mb-4">子任务列表</h2>
         <div className="space-y-4">
           {task.subtasks.map((subtask) => (
-            <Card key={subtask.id}>
+            <Card
+              key={subtask.id}
+              className={subtask.workerId === session.user.id ? "border-blue-300 bg-blue-50" : undefined}
+            >
               <CardContent className="p-4">
                 <div className="flex justify-between items-center">
                   <div className="flex-1">
@@ -249,6 +255,14 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
                          subtask.status === "IN_PROGRESS" ? "标注中" :
                          subtask.status === "COMPLETED" ? "已完成" : "待审核"}
                       </Badge>
+                      {/* 通过数/总数 */}
+                      <span className="text-xs text-muted-foreground">
+                        {(() => {
+                          const approvedCount = (subtask.annotations || []).filter(a => a.status === "APPROVED").length;
+                          const totalCount = subtask.rowCount ?? (subtask.annotations?.length || 0);
+                          return `通过数：${approvedCount}/${totalCount}`;
+                        })()}
+                      </span>
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">
                       {subtask.description || "暂无描述"}
@@ -270,12 +284,34 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
                     <ClaimButton subtaskId={subtask.id} taskId={task.id} />
                   )}
                   
-                  {/* 如果用户已经认领了这个子任务 */}
-                  {subtask.workerId === session.user.id && (
+                  {/* 接单者开始标注入口：仅在子任务处于 IN_PROGRESS 阶段允许 */}
+                  {subtask.workerId === session.user.id && subtask.status === "IN_PROGRESS" && (
                     <div className="flex gap-2">
                       <Button asChild size="sm" variant="outline">
                         <Link href={`/annotation-tasks/${task.id}/annotate?subtaskId=${subtask.id}`}>
                           开始标注
+                        </Link>
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* 发布者审核入口：当子任务为待审核时显示 */}
+                  {task.publisher.id === session.user.id && subtask.status === "PENDING_REVIEW" && (
+                    <div className="ml-3">
+                      <Button asChild size="sm">
+                        <Link href={`/annotation-subtasks/${subtask.id}/review`}>
+                          审核
+                        </Link>
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* 发布者修改入口：当审核已完成时显示（隐藏审核按钮，显示“修改”） */}
+                  {task.publisher.id === session.user.id && subtask.status === "COMPLETED" && (
+                    <div className="ml-3">
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/annotation-subtasks/${subtask.id}/review?mode=edit`}>
+                          修改
                         </Link>
                       </Button>
                     </div>

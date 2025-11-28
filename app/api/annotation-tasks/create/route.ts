@@ -19,7 +19,6 @@ export async function POST(request: NextRequest) {
     const {
       title,
       description,
-      points,
       maxWorkers,
       categoryId,
       dataFileId,
@@ -82,12 +81,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 计算任务总积分：按数据总行数（一条一分）
+    const totalPoints = dataFile.rowCount || 0
+
     // 创建标注任务
     const annotationTask = await db.annotationTask.create({
       data: {
         title,
         description: description || null,
-        points: points || 0,
+        points: totalPoints,
         maxWorkers: maxWorkers || 1,
         status: "OPEN",
         approved: false,
@@ -146,7 +148,7 @@ export async function POST(request: NextRequest) {
           data: {
             title: `子任务 ${i + 1}`,
             description: `处理数据行 ${startRow}-${endRow}`,
-            points: Math.floor((points || 0) / subtaskCount),
+            points: subtaskRowCount, // 子任务积分=子任务行数
             status: "OPEN",
             startRow,
             endRow,

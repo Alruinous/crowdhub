@@ -4,6 +4,17 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 interface ClaimButtonProps {
   subtaskId: string
@@ -12,6 +23,7 @@ interface ClaimButtonProps {
 
 export function ClaimButton({ subtaskId, taskId }: ClaimButtonProps) {
   const [isLoading, setIsLoading] = useState(false)
+  const [open, setOpen] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
 
@@ -65,12 +77,31 @@ export function ClaimButton({ subtaskId, taskId }: ClaimButtonProps) {
   }
 
   return (
-    <Button 
-      size="sm" 
-      onClick={handleClaim}
-      disabled={isLoading}
-    >
-      {isLoading ? "认领中..." : "认领"}
-    </Button>
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button size="sm" disabled={isLoading}>
+          {isLoading ? "认领中..." : "认领"}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>确认认领</AlertDialogTitle>
+          <AlertDialogDescription>
+            认领后该子任务将归属您，可以在仪表盘中找到它。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              setOpen(false)
+              handleClaim()
+            }}
+          >
+            确认认领
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

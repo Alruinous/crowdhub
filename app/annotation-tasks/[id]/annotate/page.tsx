@@ -160,7 +160,15 @@ export default function AnnotationPage({
           : { title: "未知任务" };
         const subtaskJson = subtaskRes.ok
           ? await subtaskRes.json()
-          : { title: "未知子任务", description: "" };
+          : { title: "未知子任务", description: "", status: "OPEN" };
+        if (subtaskJson.status === "PENDING_REVIEW" || subtaskJson.status === "COMPLETED") {
+          toast({
+            title: "暂不可标注",
+            description: subtaskJson.status === "COMPLETED" ? "该子任务已完成，无法继续标注。" : "该子任务已提交，待发布者审核。",
+          });
+          router.push(`/annotation-tasks/${taskId}`);
+          return;
+        }
         setDataRows(dataJson.data || []);
         setTaskInfo({
           taskName: taskJson.title || "未知任务",
@@ -270,9 +278,18 @@ export default function AnnotationPage({
     }
   }, [isLoading, currentRow, currentAnnotation, currentDimensionIndex]);
 
-  const handleNext = () =>
-    currentIndex < dataRows.length - 1 && setCurrentIndex((i) => i + 1);
-  const handlePrev = () => currentIndex > 0 && setCurrentIndex((i) => i - 1);
+  const handleNext = () => {
+    if (currentIndex < dataRows.length - 1) {
+      setCurrentIndex((i) => i + 1);
+      setCurrentDimensionIndex(0);
+    }
+  };
+  const handlePrev = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex((i) => i - 1);
+      setCurrentDimensionIndex(0);
+    }
+  };
 
   const findCategoryById = (id: string): LabelCategory | null => {
     const dfs = (nodes: LabelCategory[]): LabelCategory | null => {

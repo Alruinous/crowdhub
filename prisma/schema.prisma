@@ -6,7 +6,9 @@ generator client {
 // 数据库连接配置
 datasource db {
   provider = "sqlite"            // 使用 SQLite 数据库
-  url      = "file:./dev.db"     // 数据库文件路径
+  // 改为从环境变量读取，便于切换到 Postgres/MySQL 等
+  url = env("DATABASE_URL")
+  // url = "file:./dev.db"
 }
 
 // 用户模型 - 系统用户信息

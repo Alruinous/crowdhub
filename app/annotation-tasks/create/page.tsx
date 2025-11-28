@@ -19,7 +19,6 @@ export default function CreateAnnotationTaskPage() {
   const [formData, setFormData] = useState({
     title: "",
     description: "",
-    points: 0,
     maxWorkers: 1,
     categoryId: "",
   })
@@ -35,7 +34,7 @@ export default function CreateAnnotationTaskPage() {
     const { name, value } = e.target
     setFormData(prev => ({
       ...prev,
-      [name]: name === "points" || name === "maxWorkers" ? Number(value) : value
+      [name]: name === "maxWorkers" ? Number(value) : value
     }))
   }
 
@@ -236,17 +235,6 @@ export default function CreateAnnotationTaskPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="points">总积分</Label>
-                    <Input
-                      id="points"
-                      name="points"
-                      type="number"
-                      value={formData.points}
-                      onChange={handleInputChange}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div>
                     <Label htmlFor="maxWorkers">最大接单者数</Label>
                     <Input
                       id="maxWorkers"
@@ -407,10 +395,6 @@ export default function CreateAnnotationTaskPage() {
                   <div>
                     <Label>任务标题</Label>
                     <div className="mt-1 text-sm">{formData.title}</div>
-                  </div>
-                  <div>
-                    <Label>总积分</Label>
-                    <div className="mt-1 text-sm">{formData.points}</div>
                   </div>
                 </div>
                 <div>

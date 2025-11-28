@@ -62,6 +62,16 @@ export async function GET(
       }
     }
 
+    // 计算当前用户的可操作与已提交子任务数量
+    const actionableCount = task.subtasks.filter(
+      (s) => s.status === "CLAIMED" || s.status === "IN_PROGRESS"
+    ).length
+    const submittedCount = task.subtasks.filter(
+      (s) => s.status === "PENDING_REVIEW" || s.status === "COMPLETED"
+    ).length
+    // 满足：没有可操作子任务且至少有一个已提交/已完成子任务时，才视为已提交
+    const alreadySubmitted = actionableCount === 0 && submittedCount > 0
+
     // 检查每个子任务
     for (const subtask of task.subtasks) {
       const expectedRowCount = subtask.rowCount
@@ -95,7 +105,12 @@ export async function GET(
     // 所有子任务的所有数据都已标注完成
     return NextResponse.json({
       isComplete: true,
-      message: "所有标注数据已完成",
+      alreadySubmitted,
+      actionableCount,
+      submittedCount,
+      message: alreadySubmitted
+        ? "已提交，所有当前认领的子任务均进入待审核或已完成"
+        : "所有标注数据已完成，可提交审核",
     })
   } catch (error) {
     console.error("检查标注完成度失败:", error)

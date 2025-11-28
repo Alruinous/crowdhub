@@ -207,9 +207,23 @@ export function SubtaskList({ subtasks, taskId, publisherId, userId, userRole }:
               <div className="flex gap-2">
                 {/* Worker can claim open subtasks */}
                 {userRole === "WORKER" && isOpen && !isWorker && (
-                  <Button onClick={() => claimSubtask(subtask.id)} disabled={isLoading === subtask.id}>
-                    认领任务
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button disabled={isLoading === subtask.id}>认领任务</Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>确认认领</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          认领后该子任务将归属您，请确认再继续。
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>取消</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => claimSubtask(subtask.id)}>确认认领</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 )}
 
                 {/* Worker can mark their in-progress subtasks as completed */}

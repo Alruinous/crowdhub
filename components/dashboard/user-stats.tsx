@@ -3,9 +3,10 @@ import { CircleUser, FileText, CheckCircle, Coins } from "lucide-react"
 
 interface UserStatsProps {
   user: any
+  completedTasksCount?: number
 }
 
-export function UserStats({ user }: UserStatsProps) {
+export function UserStats({ user, completedTasksCount = 0 }: UserStatsProps) {
   if (!user) return null
 
   const stats = [
@@ -35,7 +36,7 @@ export function UserStats({ user }: UserStatsProps) {
     },
     {
       title: "已完成任务",
-      value: 0, // This would need to be calculated from the database
+      value: completedTasksCount,
       icon: CheckCircle,
     },
   ]
