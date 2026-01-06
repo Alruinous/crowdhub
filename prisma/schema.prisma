@@ -33,7 +33,7 @@ model User {
   publishedAnnotationTasks AnnotationTask[]        @relation("PublishedAnnotationTasks")
   claimedAnnotationSubtasks AnnotationSubtask[]    @relation("ClaimedAnnotationSubtasks")
   annotations              Annotation[]
-  annotationMessages      AnnotationMessage[]
+  // annotationMessages      AnnotationMessage[]
 }
 
 // 分类模型 - 科普任务分类
@@ -46,7 +46,7 @@ model Category {
   // 关联关系
   tasks     Task[]                                  // 属于该分类的任务
   users     UserCategory[]                          // 关注该分类的用户
-  annotationTasks AnnotationTask[]                  // 属于该分类的标注任务
+  // annotationTasks AnnotationTask[]                  // 属于该分类的标注任务
 }
 
 // 任务类型模型 - 科普任务类型
@@ -187,6 +187,8 @@ model AnnotationTask {
   points      Int                   @default(0)           // 总积分
   maxWorkers  Int                   @default(1)           // 最大接单者数量
   approved    Boolean               @default(false)       // 是否已审批通过
+  publishCycle Int?                 @default(1)           // 数据发布周期（天）
+  publishLimit Int?                 @default(100)         // 每次数据发布上限（条）
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
   completedAt DateTime?                                   // 完成时间
@@ -194,14 +196,14 @@ model AnnotationTask {
   // 关联关系
   publisher   User                  @relation("PublishedAnnotationTasks", fields: [publisherId], references: [id], onDelete: Cascade)
   publisherId String
-  category    Category?             @relation(fields: [categoryId], references: [id])
-  categoryId  String?
+  // category    Category?             @relation(fields: [categoryId], references: [id])
+  // categoryId  String?
   dataFile    DataFile?             @relation(fields: [dataFileId], references: [id])
   dataFileId  String?               @unique
   labelFile   LabelFile?            @relation(fields: [labelFileId], references: [id])
   labelFileId String?               @unique
   subtasks    AnnotationSubtask[]                         // 标注子任务
-  annotationMessages AnnotationMessage[]                 // 标注任务相关消息
+  // annotationMessages AnnotationMessage[]                 // 标注任务相关消息
   
   @@map("annotation_tasks")
 }
@@ -268,19 +270,19 @@ model AnnotationSubtask {
 }
 
 // 标注任务消息模型
-model AnnotationMessage {
-  id        String   @id @default(cuid())    // 消息唯一标识
-  content   String                           // 消息内容
-  createdAt DateTime @default(now())         // 发送时间
+// model AnnotationMessage {
+//   id        String   @id @default(cuid())    // 消息唯一标识
+//   content   String                           // 消息内容
+//   createdAt DateTime @default(now())         // 发送时间
   
-  // 关联关系
-  sender    User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
-  senderId  String                           // 发送者ID
-  task      AnnotationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  taskId    String                           // 所属标注任务ID
+//   // 关联关系
+//   sender    User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+//   senderId  String                           // 发送者ID
+//   // task      AnnotationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+//   // taskId    String                           // 所属标注任务ID
   
-  @@map("annotation_messages")
-}
+//   @@map("annotation_messages")
+// }
 
 // 标注结果模型
 model Annotation {

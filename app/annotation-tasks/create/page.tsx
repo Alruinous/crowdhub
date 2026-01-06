@@ -27,8 +27,8 @@ export default function CreateAnnotationTaskPage() {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadedDataFile, setUploadedDataFile] = useState<any>(null)
-  const [splitMethod, setSplitMethod] = useState<"auto" | "custom">("auto")
-  const [rowsPerTask, setRowsPerTask] = useState<number>(20)
+  const [publishCycle, setPublishCycle] = useState<number>(1) // 数据发布周期（天）
+  const [publishLimit, setPublishLimit] = useState<number>(100) // 每次数据发布上限
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -123,8 +123,8 @@ export default function CreateAnnotationTaskPage() {
           ...formData,
           dataFileId: dataUploadResult.dataFile.id,
           labelFileId: labelUploadResult.labelFile.id,
-          rowsPerTask: rowsPerTask, // 传递行数设置
-          splitMethod: splitMethod   // 传递拆分方式
+          publishCycle: publishCycle,   // 数据发布周期
+          publishLimit: publishLimit     // 每次数据发布上限
         })
       })
 
@@ -161,7 +161,7 @@ export default function CreateAnnotationTaskPage() {
   const steps = [
     { number: 1, title: "基本信息", description: "填写任务基本信息" },
     { number: 2, title: "数据上传", description: "上传数据文件和标签体系" },
-    { number: 3, title: "任务拆分", description: "配置任务拆分方式" },
+    { number: 3, title: "任务发布配置", description: "配置数据发布策略" },
     { number: 4, title: "预览发布", description: "确认信息并发布" },
   ]
 
@@ -347,43 +347,47 @@ export default function CreateAnnotationTaskPage() {
               </div>
             )}
 
-            {/* 步骤3: 任务拆分 */}
+            {/* 步骤3: 任务发布配置 */}
             {currentStep === 3 && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div>
-                  <Label>任务拆分方式</Label>
-                  <div className="mt-2 space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <input 
-                        type="radio" 
-                        id="auto-split" 
-                        name="split-method" 
-                        checked={splitMethod === "auto"}
-                        onChange={() => setSplitMethod("auto")}
-                      />
-                      <Label htmlFor="auto-split">自动拆分（每{rowsPerTask}行一个子任务）</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <input 
-                        type="radio" 
-                        id="custom-split" 
-                        name="split-method" 
-                        checked={splitMethod === "custom"}
-                        onChange={() => setSplitMethod("custom")}
-                      />
-                      <Label htmlFor="custom-split">自定义拆分</Label>
-                    </div>
+                  <Label htmlFor="publish-cycle">数据发布周期</Label>
+                  <div className="mt-2">
+                    <Input
+                      id="publish-cycle"
+                      type="number"
+                      min="1"
+                      value={publishCycle}
+                      onChange={(e) => setPublishCycle(Number(e.target.value))}
+                      placeholder="1"
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">
+                      每隔多少天发布一次新数据（单位：天）
+                    </p>
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="rows-per-task">每子任务行数</Label>
-                  <Input
-                    id="rows-per-task"
-                    type="number"
-                    value={rowsPerTask}
-                    onChange={(e) => setRowsPerTask(Number(e.target.value))}
-                    placeholder="20"
-                  />
+                  <Label htmlFor="publish-limit">每次数据发布上限</Label>
+                  <div className="mt-2">
+                    <Input
+                      id="publish-limit"
+                      type="number"
+                      min="1"
+                      value={publishLimit}
+                      onChange={(e) => setPublishLimit(Number(e.target.value))}
+                      placeholder="100"
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">
+                      每次最多发布多少条数据（单位：条）
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm text-blue-800">
+                    💡 <strong>发布策略说明：</strong><br/>
+                    系统将按照设定的周期自动发布数据。例如：设置周期为 {publishCycle} 天，每次发布 {publishLimit} 条，
+                    则系统每 {publishCycle} 天会自动发布最多 {publishLimit} 条新数据供标注者认领。
+                  </p>
                 </div>
               </div>
             )}

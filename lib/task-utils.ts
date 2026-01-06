@@ -53,7 +53,6 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
           take: taskType === "ALL" ? page * limit : limit,
           include: {
             publisher: { select: { name: true } },
-            category: true,
             _count: { select: { subtasks: true } },
           },
         })
@@ -147,10 +146,9 @@ function buildAnnotationTaskWhere(params: {
   publisher?: string
   search?: string
 }) {
-  const { status, categoryId, approved, publisherId, publisher, search } = params
+  const { status, approved, publisherId, publisher, search } = params
   const base: any = {
     status: status !== "ALL" ? (status as AnnotationTaskStatus) : undefined,
-    categoryId: categoryId !== "ALL" ? categoryId : undefined,
     approved: approved !== undefined ? approved : undefined,
     publisherId: publisherId !== undefined ? publisherId : undefined,
   }

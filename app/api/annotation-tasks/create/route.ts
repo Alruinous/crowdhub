@@ -23,8 +23,8 @@ export async function POST(request: NextRequest) {
       categoryId,
       dataFileId,
       labelFileId,
-      rowsPerTask = 20, // 默认20行
-      splitMethod = "auto" // 默认自动拆分
+      publishCycle = 1,    // 数据发布周期（天），默认1天
+      publishLimit = 100   // 每次数据发布上限（条），默认100条
     } = body
 
     // 验证必需字段
@@ -93,8 +93,9 @@ export async function POST(request: NextRequest) {
         maxWorkers: maxWorkers || 1,
         status: "OPEN",
         approved: false,
+        publishCycle: publishCycle || 1,
+        publishLimit: publishLimit || 100,
         publisherId: session.user.id,
-        categoryId: categoryId || null,
         dataFileId,
         labelFileId
       },
@@ -129,42 +130,10 @@ export async function POST(request: NextRequest) {
       })
     ])
 
-    // 根据数据文件的行数自动创建子任务
-    const rowCount = dataFile.rowCount || 0
-    
-    // 只有当拆分方式为auto时才自动创建子任务
-    if (splitMethod === "auto" && rowCount > 0) {
-      const rowsPerSubtask = rowsPerTask // 使用前端传递的行数设置
-      const subtaskCount = Math.ceil(rowCount / rowsPerSubtask)
-
-      const subtasks = []
-      
-      for (let i = 0; i < subtaskCount; i++) {
-        const startRow = i * rowsPerSubtask  // 从0开始，而不是1
-        const endRow = Math.min((i + 1) * rowsPerSubtask - 1, rowCount - 1)  // 到rowCount-1
-        const subtaskRowCount = endRow - startRow + 1
-        
-        const subtask = await db.annotationSubtask.create({
-          data: {
-            title: `子任务 ${i + 1}`,
-            description: `处理数据行 ${startRow}-${endRow}`,
-            points: subtaskRowCount, // 子任务积分=子任务行数
-            status: "OPEN",
-            startRow,
-            endRow,
-            rowCount: subtaskRowCount,
-            taskId: annotationTask.id
-          }
-        })
-        
-        subtasks.push(subtask)
-      }
-      
-      console.log(`为任务 ${annotationTask.id} 创建了 ${subtasks.length} 个子任务，每子任务 ${rowsPerSubtask} 行`)
-    } else if (splitMethod === "custom") {
-      // 自定义拆分模式，暂时不创建子任务，等待手动创建
-      console.log(`任务 ${annotationTask.id} 使用自定义拆分模式，暂不自动创建子任务`)
-    }
+    // 注意：子任务不在创建时立即生成
+    // 而是根据 publishCycle（发布周期）和 publishLimit（每次发布上限）
+    // 通过定时任务或手动触发来分批发布子任务
+    console.log(`任务 ${annotationTask.id} 已创建，发布周期: ${publishCycle}天，每次上限: ${publishLimit}条`)
 
     return NextResponse.json({
       success: true,
