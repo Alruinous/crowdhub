@@ -20,7 +20,6 @@ export default function CreateAnnotationTaskPage() {
     title: "",
     description: "",
     maxWorkers: 1,
-    categoryId: "",
   })
   const [dataFile, setDataFile] = useState<File | null>(null)
   const [labelFile, setLabelFile] = useState<File | null>(null)
@@ -113,7 +112,6 @@ export default function CreateAnnotationTaskPage() {
 
 
       // 3. 创建标注任务并关联文件
-      console.log("annotationtask1")
       const taskResponse = await fetch('/api/annotation-tasks/create', {
         method: 'POST',
         headers: { 

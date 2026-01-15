@@ -31,7 +31,7 @@ export function UserStats({ user, completedTasksCount = 0 }: UserStatsProps) {
       title: user.role === "PUBLISHER" ? "已发布任务" : "已认领任务",
       value: user.role === "PUBLISHER" 
         ? (user._count?.publishedTasks || 0) + (user._count?.publishedAnnotationTasks || 0)
-        : (user._count?.claimedTasks || 0) + (user._count?.claimedAnnotationSubtasks || 0),
+        : (user._count?.claimedTasks || 0) + (user._count?.claimedAnnotationTasks || 0),
       icon: FileText,
     },
     {

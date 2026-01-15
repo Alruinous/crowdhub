@@ -20,11 +20,10 @@ export async function POST(request: NextRequest) {
       title,
       description,
       maxWorkers,
-      categoryId,
       dataFileId,
       labelFileId,
       publishCycle = 1,    // 数据发布周期（天），默认1天
-      publishLimit = 100   // 每次数据发布上限（条），默认100条
+      publishLimit = 100   // 每人每次数据接受上限（条），默认100条
     } = body
 
     // 验证必需字段
@@ -130,9 +129,47 @@ export async function POST(request: NextRequest) {
       })
     ])
 
-    // 注意：子任务不在创建时立即生成
-    // 而是根据 publishCycle（发布周期）和 publishLimit（每次发布上限）
-    // 通过定时任务或手动触发来分批发布子任务
+    // 将 dataFile 中的每条数据作为独立的 Annotation 记录存入数据库
+    const dataRows = (dataFile.data as any[]) || []
+    if (dataRows.length > 0) {
+      console.log(`开始为任务 ${annotationTask.id} 创建 ${dataRows.length} 条数据条目...`)
+      
+      // 检查是否有 requirementVector 列
+      const columns = dataFile.columns as string[] || []
+      const hasRequirementVector = columns.length > 0 && columns[columns.length - 1] === 'requirementVector'
+      
+      // 批量创建 Annotation 记录
+      await db.annotation.createMany({
+        data: dataRows.map((row: any, index) => {
+          let rowData = row
+          let requirementVector = null
+          
+          // Excel 数据是对象形式，如果有 requirementVector 字段则分离
+          if (hasRequirementVector) {
+            const { requirementVector: vecData, ...restData } = row
+            rowData = restData
+            
+            // 如果是字符串，尝试解析为 JSON
+            try {
+              requirementVector = typeof vecData === 'string' ? JSON.parse(vecData) : vecData
+            } catch (e) {
+              console.warn(`解析 requirementVector 失败 (行 ${index}):`, e)
+            }
+          }
+          
+          return {
+            taskId: annotationTask.id,
+            rowIndex: index,
+            rowData: rowData,
+            requirementVector: requirementVector,
+          }
+        })
+      })
+      
+      console.log(`任务 ${annotationTask.id} 的 ${dataRows.length} 条数据条目已创建`)
+    }
+
+    // 注意：数据条目已创建，但处于 PENDING 状态
     console.log(`任务 ${annotationTask.id} 已创建，发布周期: ${publishCycle}天，每次上限: ${publishLimit}条`)
 
     return NextResponse.json({

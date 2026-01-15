@@ -53,7 +53,7 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
           take: taskType === "ALL" ? page * limit : limit,
           include: {
             publisher: { select: { name: true } },
-            _count: { select: { subtasks: true } },
+            _count: { select: { annotations: true } },
           },
         })
       : [],

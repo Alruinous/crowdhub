@@ -30,9 +30,10 @@ model User {
   categories    UserCategory[]                               // 用户关注的分类
 
   //数据标注
-  publishedAnnotationTasks AnnotationTask[]        @relation("PublishedAnnotationTasks")
-  claimedAnnotationSubtasks AnnotationSubtask[]    @relation("ClaimedAnnotationSubtasks")
-  annotations              Annotation[]
+  publishedAnnotationTasks AnnotationTask[]              @relation("PublishedAnnotationTasks")
+  claimedAnnotationTasks   AnnotationTask[]              @relation("ClaimedAnnotationTasks")
+  annotationResults        AnnotationResult[]            @relation("AnnotationResults")
+  taskAbilities            UserAnnotationTaskAbility[]   @relation("UserAbilities")
   // annotationMessages      AnnotationMessage[]
 }
 
@@ -163,20 +164,10 @@ enum SubtaskStatus {
 // 数据标注任务状态枚举
 enum AnnotationTaskStatus {
   OPEN             // 开放中 - 可认领
-  IN_PROGRESS      // 进行中 - 已有接单者认领
+  IN_PROGRESS      // 进行中 - 开始进行，不能再认领
   COMPLETED        // 已完成 - 所有子任务完成
 }
 
-// 数据标注子任务状态枚举
-// 发布后OPEN，认领后IN_PROGRESS，
-enum AnnotationSubtaskStatus {
-  OPEN             // 开放中 - 可认领
-  CLAIMED          // 已认领 - 等待发布者审批
-  IN_PROGRESS      // 进行中 - 已批准，正在标注
-  PENDING_REVIEW   // 待审核 - 标注完成，等待发布者审核
-  COMPLETED        // 已完成 - 已通过审核
-  REJECTED         // 已拒绝 - 发布者拒绝标注结果
-}
 
 // 数据标注任务模型
 model AnnotationTask {
@@ -188,7 +179,8 @@ model AnnotationTask {
   maxWorkers  Int                   @default(1)           // 最大接单者数量
   approved    Boolean               @default(false)       // 是否已审批通过
   publishCycle Int?                 @default(1)           // 数据发布周期（天）
-  publishLimit Int?                 @default(100)         // 每次数据发布上限（条）
+  publishLimit Int?                 @default(100)         // 每次每人数据发布上限（条）
+  lastProcessedAt DateTime?                               // 上次处理时间（用于周期性任务）
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
   completedAt DateTime?                                   // 完成时间
@@ -196,17 +188,130 @@ model AnnotationTask {
   // 关联关系
   publisher   User                  @relation("PublishedAnnotationTasks", fields: [publisherId], references: [id], onDelete: Cascade)
   publisherId String
+  workers     User[]                @relation("ClaimedAnnotationTasks")  // 认领该任务的用户
   // category    Category?             @relation(fields: [categoryId], references: [id])
   // categoryId  String?
   dataFile    DataFile?             @relation(fields: [dataFileId], references: [id])
   dataFileId  String?               @unique
   labelFile   LabelFile?            @relation(fields: [labelFileId], references: [id])
   labelFileId String?               @unique
-  subtasks    AnnotationSubtask[]                         // 标注子任务
-  // annotationMessages AnnotationMessage[]                 // 标注任务相关消息
+  annotations Annotation[]                                // 数据条目
+  userAbilities UserAnnotationTaskAbility[]               @relation("TaskAbilities")
   
   @@map("annotation_tasks")
 }
+
+
+// 标注结果模型
+model Annotation {
+  id          String   @id @default(cuid())
+  rowIndex    Int                                      // 数据行索引
+  rowData     Json                                     // 原始行数据 (JSON)
+  status      AnnotationStatus   @default(PENDING)            // 标注状态
+  taskId    String
+  task      AnnotationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  // 标注要求
+  isfinished        Boolean @default(false)  // 是否标注完成
+  requiredCount Int @default(3)  // 需要几人标注
+  completedCount      Int @default(0)  // 已完成数
+  publishedCount      Int @default(0)  // 已发布数(可能发放下去但是有人还没完成)
+
+  // 能力需求向量（与UserTaskAbility的abilityVector对应）
+  requirementVector Json?      // {"天文地理": x, "历史": y, ...}，数据对各标签的能力需求
+  vectorLength      Int?       // 向量长度（应与任务标签数量一致）
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联：一条数据有多个人的标注结果
+  results   AnnotationResult[]
+  
+  @@map("annotations")
+  @@unique([taskId, rowIndex])
+  @@index([taskId, status])
+}
+
+// 数据标注任务状态枚举
+enum AnnotationStatus {
+  PENDING          // 待定
+  COMPLETED        // 已完成
+}
+
+model AnnotationResult {
+  id          String   @id @default(cuid())
+  
+  annotationId  String
+  annotation    Annotation @relation(fields: [annotationId], references: [id], onDelete: Cascade)
+  
+  annotatorId String
+  annotator   User @relation("AnnotationResults", fields: [annotatorId], references: [id])
+  
+  isCorrect   Boolean?  // 该标注是否正确（通过一致性检查或专家审核）
+  isFinished  Boolean  @default(false)  // 是否标注完成
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  completedAt DateTime?
+  
+  // 关联：一个结果有多个选择（多维度）
+  selections  AnnotationSelection[]
+  
+  @@unique([annotationId, annotatorId])  // 每人每条数据只能标注一次
+  @@index([annotatorId, isCorrect])      // 支持按用户查询正确率
+}
+
+
+// 标注选择模型：按维度存储分类路径
+model AnnotationSelection {
+  id            String     @id @default(cuid())
+  pathIds       Json                         // string[]，每级分类的ID
+  pathNames     Json?                        // string[]，可选：每级分类的名称，便于导出
+  dimensionName String     @default("默认分类") // 维度名称
+  dimensionIndex Int       @default(0)       // 维度索引，用于排序
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // 关联
+  resultId      String   // 改为关联到 AnnotationResult
+  result        AnnotationResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+
+  @@map("annotation_selections")
+}
+
+// 用户-标注任务能力向量模型
+model UserAnnotationTaskAbility {
+  id            String   @id @default(cuid())
+  
+  // 能力向量（最终计算结果）
+  abilityVector Json     // [a_i1, a_i2, ..., a_iN]，每个元素 ∈ [0,1]
+  vectorLength  Int      // 向量长度 N（标签总数）
+  
+  // 贝叶斯统计数据（JSON数组，与abilityVector对应）
+  correctCounts Json     // [correct_i1, correct_i2, ..., correct_iN]，每个标签的正确次数
+  totalCounts   Json     // [total_i1, total_i2, ..., total_iN]，每个标签的标注总次数
+  alphaValues   Json     // [α_i1, α_i2, ..., α_iN]，Beta分布的α参数（擅长领域=2，其他=1）
+
+  // 预计算的统计信息（加速查询）
+  avgScore      Float    @default(0.5)    // 平均能力值
+  minScore      Float    @default(0.5)    // 最低能力值
+  maxScore      Float    @default(0.5)    // 最高能力值
+  totalAnnotations Int   @default(0)      // 总标注次数（所有标签的sum）
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // 关联关系
+  user          User           @relation("UserAbilities", fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  task          AnnotationTask @relation("TaskAbilities", fields: [taskId], references: [id], onDelete: Cascade)
+  taskId        String
+  
+  @@unique([userId, taskId])
+  @@index([taskId, avgScore])
+  @@map("user_annotation_task_abilities")
+}
+
 
 // 数据文件模型
 model DataFile {
@@ -218,7 +323,7 @@ model DataFile {
   mimeType    String                                         // MIME类型
   rowCount    Int                                            // 数据行数
   columns     Json                                           // 列定义 (JSON数组)
-  data        Json?                                          // 数据内容 (JSON数组)
+  data        Json?                                          // 数据内容 (Any[])
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   
@@ -246,28 +351,28 @@ model LabelFile {
 }
 
 // 数据标注子任务模型
-model AnnotationSubtask {
-  id          String                   @id @default(cuid())
-  title       String                                         // 子任务标题
-  description String?                                        // 子任务描述
-  points      Int                      @default(0)           // 子任务积分
-  status      AnnotationSubtaskStatus  @default(OPEN)        // 子任务状态
-  startRow    Int                                            // 起始行号
-  endRow      Int                                            // 结束行号
-  rowCount    Int                                            // 行数
-  createdAt   DateTime                 @default(now())
-  updatedAt   DateTime                 @updatedAt
-  completedAt DateTime?                                      // 完成时间
+// model AnnotationSubtask {
+//   id          String                   @id @default(cuid())
+//   title       String                                         // 子任务标题
+//   description String?                                        // 子任务描述
+//   points      Int                      @default(0)           // 子任务积分
+//   status      AnnotationSubtaskStatus  @default(OPEN)        // 子任务状态
+//   startRow    Int                                            // 起始行号
+//   endRow      Int                                            // 结束行号
+//   rowCount    Int                                            // 行数
+//   createdAt   DateTime                 @default(now())
+//   updatedAt   DateTime                 @updatedAt
+//   completedAt DateTime?                                      // 完成时间
   
-  // 关联关系
-  task        AnnotationTask           @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  taskId      String
-  worker      User?                    @relation("ClaimedAnnotationSubtasks", fields: [workerId], references: [id])
-  workerId    String?
-  annotations Annotation[]                                    // 标注结果
+//   // 关联关系
+//   task        AnnotationTask           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+//   taskId      String
+//   worker      User?                    @relation("ClaimedAnnotationSubtasks", fields: [workerId], references: [id])
+//   workerId    String?
+//   annotations Annotation[]                                    // 标注结果
   
-  @@map("annotation_subtasks")
-}
+//   @@map("annotation_subtasks")
+// }
 
 // 标注任务消息模型
 // model AnnotationMessage {
@@ -284,40 +389,5 @@ model AnnotationSubtask {
 //   @@map("annotation_messages")
 // }
 
-// 标注结果模型
-model Annotation {
-  id          String   @id @default(cuid())
-  rowIndex    Int                                      // 数据行索引
-  rowData     Json                                     // 原始行数据 (JSON)
-  status      String   @default("PENDING")            // 标注状态
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  // 关联关系
-  subtask     AnnotationSubtask @relation(fields: [subtaskId], references: [id], onDelete: Cascade)
-  subtaskId   String
-  annotator   User              @relation(fields: [annotatorId], references: [id], onDelete: Cascade)
-  annotatorId String
 
-  // 一条标注记录下的多条分类路径，按维度分组
-  selections  AnnotationSelection[]
-  
-  @@map("annotations")
-}
 
-// 标注选择模型：按维度存储分类路径
-model AnnotationSelection {
-  id            String     @id @default(cuid())
-  pathIds       Json                         // string[]，每级分类的ID
-  pathNames     Json?                        // string[]，可选：每级分类的名称，便于导出
-  dimensionName String     @default("默认分类") // 维度名称
-  dimensionIndex Int       @default(0)       // 维度索引，用于排序
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-
-  // 关联
-  annotation    Annotation @relation(fields: [annotationId], references: [id], onDelete: Cascade)
-  annotationId  String
-
-  @@map("annotation_selections")
-}

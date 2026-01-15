@@ -10,9 +10,10 @@ import { Badge } from "@/components/ui/badge";
 import { MessageCircle, Edit, Database, FileText, User, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { AnnotationTaskStatus } from "@prisma/client";
-import { ClaimButton } from "@/components/annotation/claim-button";
 import { ExportButton } from "@/components/annotation/export-button";
 import { DeleteTaskButton } from "@/components/annotation/delete-task-button";
+import { ClaimButton } from "@/components/annotation/claim-button";
+import { PublishButton } from "@/components/annotation/publish-button";
 
 interface AnnotationTaskPageProps {
   params: {
@@ -30,24 +31,29 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
 
   const taskId = (await params).id;
 
-  // Get annotation task with subtasks
+  // Get annotation task with annotations and workers
   const task = await db.annotationTask.findUnique({
     where: { id: taskId },
     include: {
       publisher: {
         select: { id: true, name: true },
       },
-      category: true,
       dataFile: true,
       labelFile: true,
-      subtasks: {
-        include: {
-          worker: {
-            select: { id: true, name: true },
-          },
-          annotations: {
-            select: { status: true },
-          },
+      workers: {
+        select: { id: true, name: true },
+      },
+      annotations: {
+        select: { 
+          id: true,
+          status: true,
+          rowIndex: true,
+        },
+      },
+      _count: {
+        select: {
+          annotations: true,
+          workers: true,
         },
       },
     },
@@ -66,16 +72,15 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
     redirect("/annotation-tasks");
   }
 
-  // Check if user has claimed any subtask
-  const hasClaimedSubtask = task.subtasks.some(
-    (subtask) => subtask.workerId === session.user.id
+  // Check if user has claimed this task
+  const hasClaimedTask = task.workers.some(
+    (worker) => worker.id === session.user.id
   );
 
   return (
     <DashboardShell>
       <DashboardHeader
         heading={task.title}
-        // text={`标注任务 | 类别: ${task.category?.name || "未分类"} | 状态: ${task.status}`}
       >
         {/* 当用户是任务发布者时显示编辑按钮 */}
         <div className="flex items-center justify-end gap-3">
@@ -83,22 +88,8 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             <>
               <ExportButton taskId={taskId} taskTitle={task.title} />
               <DeleteTaskButton taskId={taskId} />
-              {/* <Button asChild variant="outline">
-                <Link href={`/annotation-tasks/${taskId}/edit`}>
-                  <Edit className="h-4 w-4" />
-                  编辑
-                </Link>
-              </Button> */}
             </>
           )}
-          {/* {(task.publisher.id === session.user.id || hasClaimedSubtask) && (
-            <Button asChild variant="outline">
-              <Link href={`/annotation-chat/${taskId}`}>
-                <MessageCircle className="h-4 w-4" />
-                聊天
-              </Link>
-            </Button>
-          )} */}
         </div>
       </DashboardHeader>
 
@@ -160,32 +151,6 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             </CardContent>
           </Card>
 
-          {/* 文件信息 */}
-          {/* <Card>
-            <CardHeader>
-              <CardTitle>文件信息</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-3">
-                <Database className="h-5 w-5 text-blue-600" />
-                <div>
-                  <div className="font-medium">数据文件</div>
-                  <div className="text-sm text-muted-foreground">
-                    {task.dataFile ? task.dataFile.originalName : "未上传"}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <FileText className="h-5 w-5 text-green-600" />
-                <div>
-                  <div className="font-medium">标签文件</div>
-                  <div className="text-sm text-muted-foreground">
-                    {task.labelFile ? task.labelFile.originalName : "未上传"}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card> */}
         </div>
 
         {/* 右侧：发布者信息 */}
@@ -214,122 +179,38 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             <CardContent>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">总子任务数:</span>
-                  <span className="font-medium">{task.subtasks.length}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">已认领:</span>
+                  <span className="text-muted-foreground">已完成/总数据:</span>
                   <span className="font-medium">
-                    {task.subtasks.filter(st => st.status === "CLAIMED" || st.status === "IN_PROGRESS" || st.status === "COMPLETED").length}
+                    {task.annotations.filter(a => a.status === "COMPLETED").length} / {task._count.annotations}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">已完成:</span>
+                  <span className="text-muted-foreground">已认领人数:</span>
                   <span className="font-medium">
-                    {task.subtasks.filter(st => st.status === "COMPLETED").length}
+                    {task._count.workers} / {task.maxWorkers}
                   </span>
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          {/* Worker用户显示认领/开始标注按钮，发布者显示发布按钮 */}
+          <div className="flex justify-end gap-3">
+            <PublishButton 
+              taskId={taskId} 
+              taskStatus={task.status} 
+              isPublisher={task.publisher.id === session.user.id}
+            />
+            <ClaimButton 
+              taskId={taskId} 
+              hasClaimed={hasClaimedTask} 
+              isWorker={session.user.role === "WORKER"}
+              labelFileData={task.labelFile?.data as any}
+            />
+          </div>
         </div>
       </div>
-
-      {/* 子任务列表 */}
-      <div className="mt-8">
-        <h2 className="text-xl font-semibold mb-4">子任务列表</h2>
-        <div className="space-y-4">
-          {task.subtasks.map((subtask) => (
-            <Card
-              key={subtask.id}
-              className={subtask.workerId === session.user.id ? "border-blue-300 bg-blue-50" : undefined}
-            >
-              <CardContent className="p-4">
-                <div className="flex justify-between items-center">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <h3 className="font-medium">{subtask.title}</h3>
-                      <Badge variant="outline" className="text-xs">
-                        {subtask.status === "OPEN" ? "开放" :
-                         subtask.status === "CLAIMED" ? "已认领" :
-                         subtask.status === "IN_PROGRESS" ? "标注中" :
-                         subtask.status === "COMPLETED" ? "已完成" : "待审核"}
-                      </Badge>
-                      {/* 通过数/总数 */}
-                      <span className="text-xs text-muted-foreground">
-                        {(() => {
-                          const approvedCount = (subtask.annotations || []).filter(a => a.status === "APPROVED").length;
-                          const totalCount = subtask.rowCount ?? (subtask.annotations?.length || 0);
-                          return `通过数：${approvedCount}/${totalCount}`;
-                        })()}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {subtask.description || "暂无描述"}
-                    </p>
-                    <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                      <span>积分: {subtask.points}</span>
-                      <span>创建时间: {new Date(subtask.createdAt).toLocaleDateString()}</span>
-                      {subtask.worker && (
-                        <span>认领者: {subtask.worker.name}</span>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* 认领按钮 */}
-                  {session.user.role === "WORKER" && 
-                   subtask.status === "OPEN" && 
-                   task.approved && 
-                   subtask.workerId !== session.user.id && (
-                    <ClaimButton subtaskId={subtask.id} taskId={task.id} />
-                  )}
-                  
-                  {/* 接单者开始标注入口：仅在子任务处于 IN_PROGRESS 阶段允许 */}
-                  {subtask.workerId === session.user.id && subtask.status === "IN_PROGRESS" && (
-                    <div className="flex gap-2">
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={`/annotation-tasks/${task.id}/annotate?subtaskId=${subtask.id}`}>
-                          开始标注
-                        </Link>
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* 发布者审核入口：当子任务为待审核时显示 */}
-                  {task.publisher.id === session.user.id && subtask.status === "PENDING_REVIEW" && (
-                    <div className="ml-3">
-                      <Button asChild size="sm">
-                        <Link href={`/annotation-subtasks/${subtask.id}/review`}>
-                          审核
-                        </Link>
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* 发布者修改入口：当审核已完成时显示（隐藏审核按钮，显示“修改”） */}
-                  {task.publisher.id === session.user.id && subtask.status === "COMPLETED" && (
-                    <div className="ml-3">
-                      <Button asChild size="sm" variant="outline">
-                        <Link href={`/annotation-subtasks/${subtask.id}/review?mode=edit`}>
-                          修改
-                        </Link>
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          
-          {task.subtasks.length === 0 && (
-            <Card>
-              <CardContent className="p-8 text-center">
-                <p className="text-muted-foreground">暂无子任务</p>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
+      
     </DashboardShell>
   );
 }

@@ -30,7 +30,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           publishedTasks: true,
           publishedAnnotationTasks: true,  // 添加标注任务统计
           claimedTasks: true,
-          claimedAnnotationSubtasks: true, // 添加认领的标注子任务统计
+          claimedAnnotationTasks: true,    // 添加认领的标注任务统计
         },
       },
     },
@@ -54,9 +54,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           workerId: session.user.id,
           status: "COMPLETED",
         },
-      }) + await db.annotationSubtask.count({
+      }) + await db.annotationTask.count({
         where: {
-          workerId: session.user.id,
+          workers: {
+            some: {
+              id: session.user.id
+            }
+          },
           status: "COMPLETED",
         },
       })
@@ -67,7 +71,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // 兼容 Next 提示：将 searchParams 视为异步并显式 await
   const resolvedSearchParams = await searchParams
   const currentPage = Number.parseInt(resolvedSearchParams.page || "1") || 1
-  const searchValue = resolvedSearchParams.search || ""
+  const searchValue = resolvedSearchParams.search || "" //搜索值
   const taskTypeValue = resolvedSearchParams.taskType || "ALL"
   const pageLimit = 6 // 每页显示 6 条（3 列栅格整行两行）
 
@@ -93,7 +97,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     })
   } else if (session.user.role === "WORKER") {
     // 接单者：获取认领的普通任务和标注任务
-    const [claimedTasks, claimedAnnotationTasks] = await Promise.all([
+    const [claimedSubtasks, claimedAnnotationTasks] = await Promise.all([
       // 获取接单者认领的普通任务子任务
       db.subtask.findMany({
         where: {
@@ -112,30 +116,38 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           },
         },
       }),
-      // 获取接单者认领的标注任务子任务
-      db.annotationSubtask.findMany({
+      // 获取接单者认领的标注任务
+      db.annotationTask.findMany({
         where: {
-          workerId: session.user.id,
+          workers: {
+            some: {
+              id: session.user.id
+            }
+          },
           ...(searchValue
-            ? { task: { title: { contains: searchValue } } }
+            ? { title: { contains: searchValue } }
             : {}),
         },
         orderBy: { createdAt: "desc" },
         take: 5,
         include: {
-          task: {
-            include: {
-              category: true,
-            },
-          },
+          publisher: { select: { name: true } },
+          _count: { select: { annotations: true } },
         },
       })
     ])
+    
+    // 合并两种任务类型
     tasks = [
-      ...claimedTasks,
-      ...claimedAnnotationTasks.map(subtask => ({
+      // 科普任务的子任务
+      ...claimedSubtasks.map(subtask => ({
         ...subtask,
-        task: { ...subtask.task, taskType: "annotationTask" }
+        // 保持subtask结构，task字段包含任务信息
+      })),
+      // 标注任务（直接就是任务，添加taskType标记）
+      ...claimedAnnotationTasks.map(task => ({
+        ...task,
+        taskType: "annotationTask" as const
       }))
     ]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
