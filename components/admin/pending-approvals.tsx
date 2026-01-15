@@ -383,7 +383,6 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
             <TableHead>任务类型</TableHead>
             <TableHead>任务标题</TableHead>
             <TableHead>发布者</TableHead>
-            <TableHead>分类</TableHead>
             <TableHead>发布时间</TableHead>
             <TableHead className="text-right">操作</TableHead>
           </TableRow>
@@ -409,7 +408,6 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
               </TableCell>
               <TableCell className="font-medium">{task.title}</TableCell>
               <TableCell>{task.publisher.name}</TableCell>
-              <TableCell>{task.category?.name || "未分类"}</TableCell>
               <TableCell>
                 {formatDistanceToNow(new Date(task.createdAt), {
                   addSuffix: true,

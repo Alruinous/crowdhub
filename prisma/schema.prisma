@@ -66,9 +66,9 @@ model Task {
   id          String    @id @default(cuid())        // 任务唯一标识
   title       String                                // 任务标题
   description String                                // 任务描述
+  status      TaskStatus @default(OPEN)             // 任务状态
   points      Int                                   // 任务总积分
   maxWorkers  Int                                   // 最大接单者数量
-  status      TaskStatus @default(OPEN)             // 任务状态
   approved    Boolean   @default(false)             // 是否已审批通过
   createdAt   DateTime  @default(now())             // 创建时间
   updatedAt   DateTime  @updatedAt                  // 最后更新时间
@@ -165,7 +165,7 @@ enum SubtaskStatus {
 enum AnnotationTaskStatus {
   OPEN             // 开放中 - 可认领
   IN_PROGRESS      // 进行中 - 开始进行，不能再认领
-  COMPLETED        // 已完成 - 所有子任务完成
+  COMPLETED        // 已完成 - 所有数据标注完成
 }
 
 
@@ -189,8 +189,6 @@ model AnnotationTask {
   publisher   User                  @relation("PublishedAnnotationTasks", fields: [publisherId], references: [id], onDelete: Cascade)
   publisherId String
   workers     User[]                @relation("ClaimedAnnotationTasks")  // 认领该任务的用户
-  // category    Category?             @relation(fields: [categoryId], references: [id])
-  // categoryId  String?
   dataFile    DataFile?             @relation(fields: [dataFileId], references: [id])
   dataFileId  String?               @unique
   labelFile   LabelFile?            @relation(fields: [labelFileId], references: [id])
@@ -206,7 +204,7 @@ model AnnotationTask {
 model Annotation {
   id          String   @id @default(cuid())
   rowIndex    Int                                      // 数据行索引
-  rowData     Json                                     // 原始行数据 (JSON)
+  rowData     Json                                     // 数据内容
   status      AnnotationStatus   @default(PENDING)            // 标注状态
   taskId    String
   task      AnnotationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -238,6 +236,7 @@ enum AnnotationStatus {
   COMPLETED        // 已完成
 }
 
+// 存储每个用户对某条数据的标注结果
 model AnnotationResult {
   id          String   @id @default(cuid())
   
@@ -247,7 +246,7 @@ model AnnotationResult {
   annotatorId String
   annotator   User @relation("AnnotationResults", fields: [annotatorId], references: [id])
   
-  isCorrect   Boolean?  // 该标注是否正确（通过一致性检查或专家审核）
+  isCorrect   Boolean?  // true，false，null（还未完成标注）
   isFinished  Boolean  @default(false)  // 是否标注完成
   
   createdAt   DateTime @default(now())

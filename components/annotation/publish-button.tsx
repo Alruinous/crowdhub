@@ -51,7 +51,7 @@ export function PublishButton({ taskId, taskStatus, isPublisher }: PublishButton
         const error = await response.json();
         throw new Error(error.error || "发布失败");
       }
-
+      
       toast({
         title: "发布成功",
         description: "任务已发布，其他用户将无法继续认领",

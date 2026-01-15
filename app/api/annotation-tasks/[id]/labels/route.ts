@@ -43,21 +43,6 @@ export async function GET(
       return NextResponse.json({ message: "标注任务不存在" }, { status: 404 })
     }
 
-    // 验证用户权限（认领者、发布者或管理员）
-    const canAccess = 
-      task.publisherId === session.user.id ||
-      session.user.role === "ADMIN" ||
-      (await db.annotationSubtask.findFirst({
-        where: {
-          taskId,
-          workerId: session.user.id,
-        },
-      })) !== null
-
-    if (!canAccess) {
-      return NextResponse.json({ message: "您没有权限访问此任务的标签数据" }, { status: 403 })
-    }
-
     // 从标签文件中获取分类数据
     const dimensions: MultiDimensionLabelData['dimensions'] = []
     

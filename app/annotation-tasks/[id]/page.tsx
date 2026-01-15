@@ -205,6 +205,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
               taskId={taskId} 
               hasClaimed={hasClaimedTask} 
               isWorker={session.user.role === "WORKER"}
+              status={task.status}
               labelFileData={task.labelFile?.data as any}
             />
           </div>

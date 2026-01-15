@@ -78,10 +78,15 @@ async function processTask(task: any): Promise<void> {
 
     // 操作2: 当publishedCount小于requiredCount时，发放数据给workers
     if (annotation.publishedCount < annotation.requiredCount) {
-      
-      
+      await sendAnnotatioinToUser(annotation);
     }
   }
+
+  // 更新任务的 lastProcessedAt 时间
+  await db.annotationTask.update({
+    where: { id: task.id },
+    data: { lastProcessedAt: new Date() },
+  });
 
   console.log(`[Scheduler] ✓ 任务处理逻辑执行完成\n`);
 }
@@ -95,8 +100,6 @@ export async function processAnnotationTasks(): Promise<{
   failed: number;
   skipped: number;
 }> {
-  console.log(`\n[Scheduler] ========== 开始扫描标注任务 ==========`);
-  console.log(`[Scheduler] 北京时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`);
 
   const results = {
     total: 0,
@@ -128,54 +131,32 @@ export async function processAnnotationTasks(): Promise<{
             requiredCount: true,
             completedCount: true,
             publishedCount: true,
+            requirementVector: true,
+            taskId: true,
           },
         },
       },
     });
 
     results.total = tasks.length;
-    console.log(`[Scheduler] 找到 ${tasks.length} 个进行中任务\n`);
 
     // 遍历每个任务，检查是否需要处理
     for (const task of tasks) {
       try {
         if (shouldProcessTask(task)) {
-          console.log(`[Scheduler] 📋 任务需要处理: ${task.title}`);
           
-          // 执行任务处理
+          // 执行任务处理（内部会更新 lastProcessedAt）
           await processTask(task);
-          
-          // 更新lastProcessedAt时间
-          await db.annotationTask.update({
-            where: { id: task.id },
-            data: { lastProcessedAt: new Date() },
-          });
 
           results.processed++;
-          console.log(`[Scheduler] ✓ 任务处理成功: ${task.title}\n`);
         } else {
           results.skipped++;
-          
-          // 计算下次处理时间
-          const nextTime = getNextProcessTime(task);
-          const nextTimeStr = nextTime 
-            ? nextTime.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
-            : '未设置';
-          
-          console.log(`[Scheduler] ⏭️  跳过任务: ${task.title} (下次处理: ${nextTimeStr})`);
         }
       } catch (error) {
         results.failed++;
-        console.error(`[Scheduler] ✗ 处理任务失败: ${task.title}`, error);
       }
     }
 
-    console.log(`\n[Scheduler] ========== 扫描完成 ==========`);
-    console.log(`[Scheduler] 总任务数: ${results.total}`);
-    console.log(`[Scheduler] 处理成功: ${results.processed}`);
-    console.log(`[Scheduler] 跳过任务: ${results.skipped}`);
-    console.log(`[Scheduler] 处理失败: ${results.failed}`);
-    console.log(`[Scheduler] ===================================\n`);
 
     return results;
   } catch (error) {
@@ -209,6 +190,8 @@ export async function processTaskById(taskId: string) {
           requiredCount: true,
           completedCount: true,
           publishedCount: true,
+          requirementVector: true,
+          taskId: true,
         },
       },
     },
@@ -222,36 +205,10 @@ export async function processTaskById(taskId: string) {
     throw new Error("只能处理已发布的任务");
   }
 
-  // 执行处理
+  // 执行处理（内部会更新 lastProcessedAt）
   await processTask(task);
 
-  // 更新处理时间
-  await db.annotationTask.update({
-    where: { id: taskId },
-    data: { lastProcessedAt: new Date() },
-  });
-
   return { success: true, message: "任务处理完成" };
-}
-
-/**
- * 计算任务下次处理时间
- * @param task 标注任务
- * @returns 下次处理时间
- */
-export function getNextProcessTime(task: any): Date | null {
-  if (!task.publishCycle || task.publishCycle <= 0) {
-    return null;
-  }
-
-  const baseTime = task.lastProcessedAt 
-    ? new Date(task.lastProcessedAt)
-    : new Date(task.createdAt);
-
-  const nextTime = new Date(baseTime);
-  nextTime.setDate(nextTime.getDate() + task.publishCycle);
-  
-  return nextTime;
 }
 
 /**
@@ -275,4 +232,151 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
 
 
   
+}
+
+/**
+ * 将annotation发放给合适的用户
+ * 根据用户能力向量和数据需求向量的匹配度进行分配
+ * 
+ * @param annotation 标注数据
+ */
+async function sendAnnotatioinToUser(annotation: any): Promise<void> {
+  
+  // 计算需要发放的数量
+  const needCount = annotation.requiredCount - annotation.publishedCount;
+  const taskId = annotation.taskId;
+  
+  // 获取annotation的需求向量
+  const requirementVector = annotation.requirementVector as Record<string, number> | null;
+  
+  if (!requirementVector) {
+    console.log(`[Distribute] 该数据没有需求向量，无法匹配`);
+    return;
+  }
+  
+  // 直接查询该任务的所有用户能力向量（更高效）
+  const userAbilities = await db.userAnnotationTaskAbility.findMany({
+    where: { taskId: taskId },
+    include: {
+      user: {
+        select: { id: true, name: true }
+      }
+    }
+  });
+  
+  if (!userAbilities.length) {
+    console.log(`[Distribute] 任务没有可用的用户能力向量`);
+    return;
+  }
+  
+  // 查询已经有 AnnotationResult 的用户（提前过滤）
+  const existingResults = await db.annotationResult.findMany({
+    where: {
+      annotationId: annotation.id
+    },
+    select: { annotatorId: true }
+  });
+  
+  const existingUserIds = new Set(existingResults.map(r => r.annotatorId));
+  
+  // 获取当前周期的起始时间（基于任务的 lastProcessedAt）
+  const task = await db.annotationTask.findUnique({
+    where: { id: taskId },
+    select: { 
+      lastProcessedAt: true, 
+      publishLimit: true,
+      createdAt: true 
+    }
+  });
+  
+  if (!task) {
+    console.log(`[Distribute] 任务不存在`);
+    return;
+  }
+  
+  // 当前周期起始时间：lastProcessedAt 或任务创建时间
+  const periodStart = task.lastProcessedAt || task.createdAt;
+  const publishLimit = task.publishLimit || 100;
+  
+  // 统计每个用户在当前周期已接收的数量
+  const userReceivedCounts = await db.annotationResult.groupBy({
+    by: ['annotatorId'],
+    where: {
+      annotation: { taskId: taskId },
+      createdAt: { gte: periodStart }
+    },
+    _count: {
+      id: true
+    }
+  });
+  
+  const userCountMap = new Map(
+    userReceivedCounts.map(r => [r.annotatorId, r._count.id])
+  );
+  
+  // 过滤掉已经有分配记录的用户 AND 已达到周期上限的用户
+  const availableAbilities = userAbilities.filter(ability => {
+    const userId = ability.user.id;
+    
+    // 已经标注过这条数据
+    if (existingUserIds.has(userId)) {
+      return false;
+    }
+    
+    // 当前周期已达到上限
+    const receivedCount = userCountMap.get(userId) || 0;
+    if (receivedCount >= publishLimit) {
+      return false;
+    }
+    
+    return true;
+  });
+  
+  if (availableAbilities.length === 0) {
+    return;
+  }
+  
+  // 计算每个可用用户的匹配度（点积）
+  const userScores: { userId: string; userName: string; score: number }[] = [];
+  
+  for (const ability of availableAbilities) {
+    const abilityVector = ability.abilityVector as Record<string, number>;
+    
+    // 计算点积（requirementVector · abilityVector）
+    let dotProduct = 0;
+    for (const [key, reqValue] of Object.entries(requirementVector)) {
+      const abilityValue = abilityVector[key] || 0;
+      dotProduct += reqValue * abilityValue;
+    }
+    
+    userScores.push({
+      userId: ability.user.id,
+      userName: ability.user.name || '未知用户',
+      score: dotProduct
+    });
+    
+  }
+  
+  // 按匹配度从高到低排序
+  userScores.sort((a, b) => b.score - a.score);
+  
+  // 从可用用户中选择前 needCount 个
+  const selectedUsers = userScores.slice(0, needCount);
+  
+  for (const selectedUser of selectedUsers) {
+    await db.annotationResult.create({
+      data: {
+        annotationId: annotation.id,
+        annotatorId: selectedUser.userId,
+      }
+    });
+  }
+  
+  // 更新 annotation 的 publishedCount
+  await db.annotation.update({
+    where: { id: annotation.id },
+    data: { publishedCount: annotation.publishedCount + selectedUsers.length }
+  });
+  
+  console.log(`[Distribute] 数据分配完成`);
 }

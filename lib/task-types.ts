@@ -14,9 +14,7 @@ export interface BaseTask {
   createdAt: Date
   updatedAt: Date
   completedAt?: Date | null
-  publisher: { name: string }
-  category?: { name: string } | null
-  _count?: { subtasks: number }
+  publisher: { id: string; name: string }
   taskType: "task" | "annotationTask"
 }
 

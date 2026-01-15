@@ -21,6 +21,7 @@ interface ClaimStartButtonProps {
   taskId: string;
   hasClaimed: boolean;
   isWorker: boolean;
+  status: string; // "OPEN" | "IN_PROGRESS" | "COMPLETED"
   labelFileData?: {
     dimensions?: Array<{
       name: string;
@@ -33,7 +34,7 @@ interface ClaimStartButtonProps {
   };
 }
 
-export function ClaimButton({ taskId, hasClaimed, isWorker, labelFileData }: ClaimStartButtonProps) {
+export function ClaimButton({ taskId, hasClaimed, isWorker, status, labelFileData }: ClaimStartButtonProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
@@ -78,18 +79,44 @@ export function ClaimButton({ taskId, hasClaimed, isWorker, labelFileData }: Cla
     });
   };
 
-  // 已认领：显示"开始标注"按钮
+  // 已认领的情况
   if (hasClaimed) {
-    const handleStartAnnotation = () => {
-      router.push(`/annotation-tasks/${taskId}/annotate`);
-    };
+    // status 为 OPEN：显示"已认领，等待任务开始"
+    if (status === "OPEN") {
+      return (
+        <Button disabled size="lg">
+          已认领，等待任务开始
+        </Button>
+      );
+    }
+    
+    // status 为 IN_PROGRESS：显示"开始标注"，可以点击跳转
+    if (status === "IN_PROGRESS") {
+      const handleStartAnnotation = () => {
+        router.push(`/annotation-tasks/${taskId}/annotate`);
+      };
 
-    return (
-      <Button onClick={handleStartAnnotation} size="lg" className="gap-2">
-        <Play className="h-4 w-4" />
-        开始标注
-      </Button>
-    );
+      return (
+        <Button onClick={handleStartAnnotation} size="lg" className="gap-2">
+          <Play className="h-4 w-4" />
+          开始标注
+        </Button>
+      );
+    }
+    
+    // status 为 COMPLETED：显示"已完成"
+    if (status === "COMPLETED") {
+      return (
+        <Button disabled size="lg">
+          已完成
+        </Button>
+      );
+    }
+  }
+
+  // 未认领的情况：只有当 status 为 OPEN 时才显示认领按钮
+  if (status !== "OPEN") {
+    return null;
   }
 
   // 未认领：显示"认领"按钮

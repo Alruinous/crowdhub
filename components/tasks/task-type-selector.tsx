@@ -50,7 +50,7 @@ export function TaskTypeSelector({ children }: TaskTypeSelectorProps) {
         </DialogHeader>
         
         <div className="grid grid-cols-1 gap-4">
-          <Card 
+          {/* <Card 
             className="cursor-pointer hover:bg-accent transition-colors"
             onClick={() => handleTaskTypeSelect("general")}
           >
@@ -63,7 +63,7 @@ export function TaskTypeSelector({ children }: TaskTypeSelectorProps) {
                 创建普通的科普任务，包含任务描述、积分设置和子任务分解
               </CardDescription>
             </CardContent>
-          </Card>
+          </Card> */}
 
           <Card 
             className="cursor-pointer hover:bg-accent transition-colors"

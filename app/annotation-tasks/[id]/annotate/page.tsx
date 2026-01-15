@@ -32,11 +32,20 @@ import {
   ChevronUp,
 } from "lucide-react";
 
-interface DataRow {
+// AnnotationResult from API
+interface AnnotationResultData {
   id: string;
-  index: number;
-  data: Record<string, any>;
+  annotationId: string;
+  annotation: {
+    id: string;
+    rowIndex: number;
+    rowData: Record<string, any>;
+    status: string;
+  };
+  isFinished: boolean;
+  selections: AnnotationSelection[];
 }
+
 interface LabelCategory {
   id: string;
   type: string;
@@ -56,9 +65,9 @@ interface AnnotationData {
   rowIndex: number;
   rowData: Record<string, any>;
   selections: AnnotationSelection[];
-  status: string;
 }
 
+// 辅助函数：规范化分类数据
 function normalizeCategories(
   nodes: any[],
   parentPath: string[] = [],
@@ -74,6 +83,8 @@ function normalizeCategories(
     };
   });
 }
+
+// 分析分类树深度和层级标题
 function analyzeCategoryTree(
   categories: LabelCategory[],
   currentLevel: number = 1,
@@ -100,17 +111,19 @@ export default function AnnotationPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const ENABLE_ADD_CATEGORY = false;
+  // 功能开关
+  const ENABLE_ADD_CATEGORY = false; //添加新的选择行
   const ENABLE_MULTI_LAST_LEVEL_FIRST_DIMENSION = true;
 
+  // Hooks
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
-  const subtaskId = searchParams.get("subtaskId");
   const { id: taskId } = use(params);
 
+  // 状态管理
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [dataRows, setDataRows] = useState<DataRow[]>([]);
+  const [annotationResults, setAnnotationResults] = useState<AnnotationResultData[]>([]);
   const [labelDimensions, setLabelDimensions] = useState<LabelDimension[]>([]);
   const [annotations, setAnnotations] = useState<
     Record<number, AnnotationData>
@@ -119,9 +132,8 @@ export default function AnnotationPage({
   const [isSaving, setIsSaving] = useState(false);
   const [taskInfo, setTaskInfo] = useState<{
     taskName: string;
-    subtaskName: string;
-    subtaskDescription?: string;
-  }>({ taskName: "", subtaskName: "" });
+    description?: string;
+  }>({ taskName: "", description: "" });
   const [dimensionDepths, setDimensionDepths] = useState<
     Record<string, number>
   >({});
@@ -135,48 +147,39 @@ export default function AnnotationPage({
   const [searchQueries, setSearchQueries] = useState<Record<string, string>>({});
   const [openSelects, setOpenSelects] = useState<Record<string, boolean>>({});
 
+  // 工具函数
   const getSearchKey = (dimensionName: string, selIdx: number, level: number) =>
     `${dimensionName}|${selIdx}|${level}`;
 
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
+      console.log("hello")
       try {
-        if (!subtaskId) throw new Error("缺少子任务ID");
-        const [dataRes, labelRes, annRes, taskRes, subtaskRes] =
+        const [dataRes, labelRes, taskRes] =
           await Promise.all([
-            fetch(`/api/annotation-subtasks/${subtaskId}/data`),
+            fetch(`/api/annotation-tasks/${taskId}/get-annotation-data`),
             fetch(`/api/annotation-tasks/${taskId}/labels`),
-            fetch(`/api/annotation-subtasks/${subtaskId}/annotations`),
-            fetch(`/api/annotation-tasks/${taskId}`),
-            fetch(`/api/annotation-subtasks/${subtaskId}`),
+            fetch(`/api/annotation-tasks/${taskId}`)
           ]);
+        
+        
         if (!dataRes.ok || !labelRes.ok) throw new Error("无法加载标注数据");
         const dataJson = await dataRes.json();
         const labelJson = await labelRes.json();
-        const annJson = annRes.ok ? await annRes.json() : { annotations: [] };
         const taskJson = taskRes.ok
           ? await taskRes.json()
           : { title: "未知任务" };
-        const subtaskJson = subtaskRes.ok
-          ? await subtaskRes.json()
-          : { title: "未知子任务", description: "", status: "OPEN" };
-        if (subtaskJson.status === "PENDING_REVIEW" || subtaskJson.status === "COMPLETED") {
-          toast({
-            title: "暂不可标注",
-            description: subtaskJson.status === "COMPLETED" ? "该子任务已完成，无法继续标注。" : "该子任务已提交，待发布者审核。",
-          });
-          router.push(`/annotation-tasks/${taskId}`);
-          return;
-        }
-        setDataRows(dataJson.data || []);
+        setAnnotationResults(dataJson.data || []);
         setTaskInfo({
           taskName: taskJson.title || "未知任务",
-          subtaskName: subtaskJson.title || "未知子任务",
-          subtaskDescription: subtaskJson.description || "",
+          description: taskJson.description || "",
         });
+
+        // 处理标签数据
+        let dims: LabelDimension[];
         if (Array.isArray(labelJson.dimensions)) {
-          const dims: LabelDimension[] = labelJson.dimensions.map((d: any) => ({
+          dims = labelJson.dimensions.map((d: any) => ({
             name: d.name,
             categories: normalizeCategories(d.categories || []),
           }));
@@ -194,43 +197,78 @@ export default function AnnotationPage({
           setDimensionLevelTitles(titles);
         } else {
           const normalized = normalizeCategories(labelJson.categories || []);
-          const dimensionName = "默认分类";
-          setLabelDimensions([{ name: dimensionName, categories: normalized }]);
+          const dimensionName = labelJson.name || "默认分类";
+          dims = [{ name: dimensionName, categories: normalized }];
+          setLabelDimensions(dims);
           const { maxDepth, levelTitles } = analyzeCategoryTree(normalized);
           setDimensionDepths({ [dimensionName]: maxDepth });
           setDimensionLevelTitles({ [dimensionName]: levelTitles });
         }
+
+        // 使用局部变量 dims 而不是 state 中的 labelDimensions
         const initial: Record<number, AnnotationData> = {};
-        (dataJson.data || []).forEach((row: DataRow) => {
-          const existing = annJson.annotations?.find(
-            (a: any) => a.rowIndex === row.index,
-          );
-          let selections: AnnotationSelection[] = [];
-          if (existing?.selections?.length) {
-            selections = existing.selections.map((s: any) => ({
-              dimensionName: s.dimensionName || "默认分类",
-              pathIds: s.pathIds || [],
-              pathNames: s.pathNames,
-            }));
-          }
-          if (!selections.length) {
-            selections = labelDimensions.map((d) => ({
+        
+        (dataJson.data || []).forEach((result: any, index: number) => {
+          const rowIndex = result.annotation.rowIndex;
+          const rowData = result.annotation.rowData;
+          
+          // 如果有已保存的标注数据，使用它；否则初始化空选择项
+          let selections: AnnotationSelection[];
+          if (result.selections && result.selections.length > 0) {
+            console.log("!!!正在加载，数据库中已有这一条的标注结果！！！")
+            // 使用已保存的标注数据
+            selections = result.selections;
+            
+            // 如果启用了第一维度多选，需要重建前缀行
+            if (ENABLE_MULTI_LAST_LEVEL_FIRST_DIMENSION && dims.length > 0) {
+              const firstDimName = dims[0].name;
+              const depth = dimensionDepths[firstDimName] || 0;
+              
+              // 找出所有第一维度的完整路径
+              const firstDimComplete = selections.filter(
+                (s) => s.dimensionName === firstDimName && s.pathIds.length === depth
+              );
+              
+              // 按前缀分组
+              const prefixMap = new Map<string, boolean>();
+              firstDimComplete.forEach((sel) => {
+                const prefix = sel.pathIds.slice(0, depth - 1);
+                const key = prefix.join("|");
+                prefixMap.set(key, true);
+              });
+              
+              // 为每个前缀添加一个前缀行（如果不存在）
+              prefixMap.forEach((_, key) => {
+                const prefix = key.split("|");
+                const hasPrefixRow = selections.some(
+                  (s) => s.dimensionName === firstDimName && 
+                         s.pathIds.length === depth - 1 &&
+                         s.pathIds.join("|") === key
+                );
+                
+                if (!hasPrefixRow && prefix.length > 0) {
+                  selections.unshift({
+                    dimensionName: firstDimName,
+                    pathIds: prefix,
+                  });
+                }
+              });
+            }
+          } else {
+            // 初始化空的选择项
+            selections = dims.map((d) => ({
               dimensionName: d.name,
               pathIds: [],
             }));
           }
-          const merged = [...selections];
-          labelDimensions.forEach((d) => {
-            if (!merged.some((m) => m.dimensionName === d.name))
-              merged.push({ dimensionName: d.name, pathIds: [] });
-          });
-          initial[row.index] = {
-            rowIndex: row.index,
-            rowData: row.data,
-            selections: merged,
-            status: existing?.status || "PENDING",
+          
+          initial[rowIndex] = {
+            rowIndex,
+            rowData,
+            selections,
           };
         });
+
         setAnnotations(initial);
       } catch (e) {
         toast({
@@ -243,23 +281,25 @@ export default function AnnotationPage({
       }
     };
     loadData();
-  }, [taskId, subtaskId, toast, labelDimensions.length]);
+  }, [taskId, toast]);
 
-  const currentRow = dataRows[currentIndex];
-  const currentAnnotation = currentRow
-    ? annotations[currentRow.index]
+  // 当前数据和维度
+  const currentResult = annotationResults[currentIndex];
+  const currentAnnotation = currentResult
+    ? annotations[currentResult.annotation.rowIndex]
     : undefined;
   const getCurrentDimension = () =>
     labelDimensions[currentDimensionIndex] || labelDimensions[0];
 
+  // 确保当前维度有选择项
   useEffect(() => {
-    if (!isLoading && currentRow && currentAnnotation) {
+    if (!isLoading && currentResult && currentAnnotation) {
       const dim = getCurrentDimension();
       const dimSelections = currentAnnotation.selections.filter(
         (s) => s.dimensionName === dim?.name,
       );
       if (!dimSelections.length) {
-        const rowKey = currentRow.index;
+        const rowKey = currentResult.annotation.rowIndex;
         setAnnotations((prev) => {
           const cur = prev[rowKey];
           return {
@@ -276,14 +316,16 @@ export default function AnnotationPage({
         setExpandedSelections({ 0: true });
       }
     }
-  }, [isLoading, currentRow, currentAnnotation, currentDimensionIndex]);
+  }, [isLoading, currentResult, currentAnnotation, currentDimensionIndex]);
 
+  // 导航函数
   const handleNext = () => {
-    if (currentIndex < dataRows.length - 1) {
+    if (currentIndex < annotationResults.length - 1) {
       setCurrentIndex((i) => i + 1);
       setCurrentDimensionIndex(0);
     }
   };
+
   const handlePrev = () => {
     if (currentIndex > 0) {
       setCurrentIndex((i) => i - 1);
@@ -291,6 +333,7 @@ export default function AnnotationPage({
     }
   };
 
+  // 分类查找和处理函数
   const findCategoryById = (id: string): LabelCategory | null => {
     const dfs = (nodes: LabelCategory[]): LabelCategory | null => {
       for (const n of nodes) {
@@ -308,6 +351,7 @@ export default function AnnotationPage({
     }
     return null;
   };
+
   const getCategoriesForLevel = (
     pathIds: string[],
     level: number,
@@ -324,6 +368,7 @@ export default function AnnotationPage({
     const parent = findCategoryById(parentId);
     return parent?.children || [];
   };
+
   const getCategoryTypeName = (
     level: number,
     dimensionName?: string,
@@ -334,15 +379,17 @@ export default function AnnotationPage({
     const titles = d ? dimensionLevelTitles[d.name] || {} : {};
     return titles[level] || `第${level}级分类`;
   };
+
+  // 维度切换处理
   const handleDimensionChange = (idx: number) => {
     setCurrentDimensionIndex(idx);
-    if (currentRow && currentAnnotation) {
+    if (currentResult && currentAnnotation) {
       const dim = labelDimensions[idx];
       const dimSelections = currentAnnotation.selections.filter(
         (s) => s.dimensionName === dim?.name,
       );
       if (!dimSelections.length) {
-        const rowKey = currentRow.index;
+        const rowKey = currentResult.annotation.rowIndex;
         setAnnotations((prev) => {
           const cur = prev[rowKey];
           return {
@@ -360,9 +407,11 @@ export default function AnnotationPage({
       }
     }
   };
+
+  // 处理分类层级选择变化
   const handleLevelChange = (selIdx: number, level: number, value: string) => {
-    if (!currentRow || !currentAnnotation) return;
-    const rowKey = currentRow.index;
+    if (!currentResult || !currentAnnotation) return;
+    const rowKey = currentResult.annotation.rowIndex;
     setAnnotations((prev) => {
       const cur = prev[rowKey];
       if (!cur) return prev;
@@ -417,9 +466,11 @@ export default function AnnotationPage({
       return { ...prev, [rowKey]: { ...cur, selections: nextSelections } };
     });
   };
+
+  // 添加新的选择行
   const addSelectionRow = () => {
-    if (!currentRow || !currentAnnotation) return;
-    const rowKey = currentRow.index;
+    if (!currentResult || !currentAnnotation) return;
+    const rowKey = currentResult.annotation.rowIndex;
     setAnnotations((prev) => {
       const cur = prev[rowKey];
       const dim = getCurrentDimension();
@@ -440,9 +491,11 @@ export default function AnnotationPage({
       };
     });
   };
+
+  //删除某个选择行
   const removeSelectionRow = (selIdx: number) => {
-    if (!currentRow || !currentAnnotation) return;
-    const rowKey = currentRow.index;
+    if (!currentResult || !currentAnnotation) return;
+    const rowKey = currentResult.annotation.rowIndex;
     setAnnotations((prev) => {
       const cur = prev[rowKey];
       const dimSelections = cur.selections.filter(
@@ -464,8 +517,10 @@ export default function AnnotationPage({
       };
     });
   };
+
   const toggleSelectionExpanded = (selIdx: number) =>
     setExpandedSelections((prev) => ({ ...prev, [selIdx]: !prev[selIdx] }));
+
   const getSelectedCategoryPathNames = (
     pathIds: string[],
     dimensionName?: string,
@@ -491,67 +546,101 @@ export default function AnnotationPage({
       .map((id) => findIn(id, d.categories)?.name)
       .filter(Boolean) as string[];
   };
-  const handleSave = async () => {
-    if (!subtaskId) {
-      toast({
-        title: "保存失败",
-        description: "缺少子任务信息",
-        variant: "destructive",
-      });
-      return;
+
+  // 检查标注是否完成：所有维度都有完整的选择结果
+  const isAnnotationComplete = (annotationData: AnnotationData): boolean => {
+    // 获取所有维度名称
+    const allDimensions = labelDimensions.map((d) => d.name);
+    
+    // 按维度分组 selections，只保留完整路径（过滤前缀行）
+    const completeSelectionsByDimension = new Map<string, AnnotationSelection[]>();
+    
+    annotationData.selections.forEach((sel) => {
+      const depth = dimensionDepths[sel.dimensionName] || 0;
+      
+      // 只统计完整路径（pathIds.length === depth）
+      if (sel.pathIds.length === depth && sel.pathIds.length > 0) {
+        if (!completeSelectionsByDimension.has(sel.dimensionName)) {
+          completeSelectionsByDimension.set(sel.dimensionName, []);
+        }
+        completeSelectionsByDimension.get(sel.dimensionName)!.push(sel);
+      }
+    });
+    
+    // 检查每个维度是否都有至少一个完整的选择
+    for (const dimName of allDimensions) {
+      const completeSelections = completeSelectionsByDimension.get(dimName) || [];
+      if (completeSelections.length === 0) {
+        return false; // 该维度没有完整的选择
+      }
     }
+    
+    return true; // 所有维度都有完整的选择
+  };
+
+  // 保存标注数据
+  const handleSave = async () => {
     setIsSaving(true);
+    
     try {
-      const payload = {
-        annotations: Object.values(annotations).map((a) => {
-          const filtered = a.selections
-            .filter((s) => {
-              // 检查路径是否有效：至少有一级且所有ID都有效
-              if (s.pathIds.length === 0 || !s.pathIds.every((id) => id && id !== "unselected")) {
-                return false;
-              }
-              // 获取路径中最后一个节点
-              const lastId = s.pathIds[s.pathIds.length - 1];
-              const lastCategory = findCategoryById(lastId);
-              // 如果找到节点，检查是否是叶子节点（没有子节点）
-              // 叶子节点才是完整的选择，应该保存
-              return lastCategory && (!lastCategory.children || lastCategory.children.length === 0);
-            })
-            .map((s) => ({
-              dimensionName: s.dimensionName,
-              pathIds: s.pathIds,
-              pathNames:
-                s.pathNames ??
-                getSelectedCategoryPathNames(s.pathIds, s.dimensionName),
-            }));
-          return {
-            rowIndex: a.rowIndex,
-            rowData: a.rowData,
-            status: a.status,
-            selections: filtered,
-          };
-        }),
-      };
-      const res = await fetch(
-        `/api/annotation-subtasks/${subtaskId}/annotations`,
+      // 筛选出标注完整的条目，并过滤出完整路径的 selections
+      const completeAnnotations = annotationResults
+        .map((result) => {
+          const rowIndex = result.annotation.rowIndex;
+          const annotationData = annotations[rowIndex];
+          
+          // 检查该条目是否完整
+          if (annotationData && isAnnotationComplete(annotationData)) {
+            // 过滤出完整路径的 selections（排除前缀行）
+            const completeSelections = annotationData.selections.filter((sel) => {
+              const depth = dimensionDepths[sel.dimensionName] || 0;
+              return sel.pathIds.length === depth && sel.pathIds.length > 0;
+            });
+
+            return {
+              annotationResultId: result.id,
+              selections: completeSelections,
+            };
+          }
+          return null;
+        })
+        .filter(Boolean) as Array<{
+          annotationResultId: string;
+          selections: AnnotationSelection[];
+        }>;
+
+      if (completeAnnotations.length === 0) {
+        setIsSaving(false);
+        return;
+      }
+
+      // 批量发送所有完整标注到 API
+      const response = await fetch(
+        `/api/annotation-tasks/${taskId}/save-annotations`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        },
+          body: JSON.stringify({ annotations: completeAnnotations }),
+        }
       );
-      if (res.ok) {
-        toast({ title: "保存成功", description: "标注数据已保存" });
-        setTimeout(() => router.push(`/annotation-tasks/${taskId}`), 100);
-        // router.push(`/annotation-tasks/${taskId}`);
-      } else {
-        const err = await res.json();
-        throw new Error(err.message || "保存失败");
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "保存标注失败");
       }
-    } catch (e) {
+
+      const result = await response.json();
+
+      toast({
+        description: result.message,
+      });
+
+    } catch (error) {
+      console.error("保存标注失败:", error);
       toast({
         title: "保存失败",
-        description: e instanceof Error ? e.message : "无法保存标注数据",
+        description:
+          error instanceof Error ? error.message : "保存标注时发生错误",
         variant: "destructive",
       });
     } finally {
@@ -561,8 +650,8 @@ export default function AnnotationPage({
 
   // 多选终级：同步复选结果 -> selection rows
   const toggleFinalCategory = (prefixPath: string[], categoryId: string) => {
-    if (!currentRow || !currentAnnotation) return;
-    const rowKey = currentRow.index;
+    if (!currentResult || !currentAnnotation) return;
+    const rowKey = currentResult.annotation.rowIndex;
     setAnnotations((prev) => {
       const cur = prev[rowKey];
       if (!cur) return prev;
@@ -589,17 +678,24 @@ export default function AnnotationPage({
             ),
         );
       } else {
+        const fullPath = [...prefixPath, categoryId];
+        const names = fullPath
+          .map((id) => findCategoryById(id)?.name)
+          .filter(Boolean) as string[];
         nextSelections.push({
           dimensionName: firstDimName || "默认分类",
-          pathIds: [...prefixPath, categoryId],
+          pathIds: fullPath,
+          pathNames: names.length ? names : undefined,
         });
       }
       return { ...prev, [rowKey]: { ...cur, selections: nextSelections } };
     });
   };
+
   const arraysEqual = (a: string[], b: string[]) =>
     a.length === b.length && a.every((v, i) => v === b[i]);
 
+  // 加载中状态
   if (isLoading)
     return (
       <DashboardShell>
@@ -612,7 +708,9 @@ export default function AnnotationPage({
         </div>
       </DashboardShell>
     );
-  if (!currentRow || !currentAnnotation)
+
+  // 无数据状态
+  if (!currentResult || !currentAnnotation)
     return (
       <DashboardShell>
         <DashboardHeader
@@ -625,8 +723,10 @@ export default function AnnotationPage({
       </DashboardShell>
     );
 
+  // 构建多选状态
   const firstDimName = labelDimensions[0]?.name;
   const firstDimDepth = firstDimName ? dimensionDepths[firstDimName] || 0 : 0;
+
   const buildFinalMultiSelectState = () => {
     const result: Record<
       string,
@@ -657,8 +757,10 @@ export default function AnnotationPage({
     });
     return result;
   };
+
   const multiSelectState = buildFinalMultiSelectState();
 
+  // 渲染主界面
   return (
     <DashboardShell>
       <div className="flex items-center justify-between px-2">
@@ -666,16 +768,11 @@ export default function AnnotationPage({
           <h1 className="text-2xl font-bold tracking-wide">
             {taskInfo.taskName || "数据标注"}
           </h1>
-          <div className="space-y-1">
-            <p className="text-muted-foreground font-medium">
-              {taskInfo.subtaskName}
+          {taskInfo.description && (
+            <p className="text-sm text-muted-foreground">
+              {taskInfo.description}
             </p>
-            {taskInfo.subtaskDescription && (
-              <p className="text-sm text-muted-foreground">
-                {taskInfo.subtaskDescription}
-              </p>
-            )}
-          </div>
+          )}
         </div>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -689,7 +786,7 @@ export default function AnnotationPage({
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {Object.entries(currentRow.data).map(([k, v]) => {
+                {currentResult && Object.entries(currentResult.annotation.rowData).map(([k, v]) => {
                   const isUrl =
                     typeof v === "string" &&
                     (v.startsWith("http://") ||
@@ -888,7 +985,7 @@ export default function AnnotationPage({
                                   )
                                 : allCats;
                             const selected =
-                              sel.pathIds[level - 1] ?? "unselected";
+                              sel.pathIds[level - 1] || "unselected";
                             const disabled =
                               level > 1 &&
                               (!sel.pathIds[level - 2] ||
@@ -940,7 +1037,7 @@ export default function AnnotationPage({
                                     setSearchQueries((prev) => ({ ...prev, [searchKey]: "" }));
                                   }}
                                   disabled={disabled}
-                                  open={openSelects[searchKey]}
+                                  open={openSelects[searchKey] || false}
                                   onOpenChange={(open) =>
                                     setOpenSelects((prev) => ({ ...prev, [searchKey]: open }))
                                   }
@@ -1089,7 +1186,7 @@ export default function AnnotationPage({
                 variant="outline"
                 size="sm"
                 onClick={handleNext}
-                disabled={currentIndex === dataRows.length - 1}
+                disabled={currentIndex === annotationResults.length - 1}
                 className="w-full justify-center"
               >
                 下一条
@@ -1105,7 +1202,7 @@ export default function AnnotationPage({
               </Button>
               <div className="flex justify-center">
                 <Badge variant="secondary" className="select-none text-xs">
-                  {currentIndex + 1} / {dataRows.length}
+                  {currentIndex + 1} / {annotationResults.length}
                 </Badge>
               </div>
             </div>

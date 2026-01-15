@@ -14,7 +14,7 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
     approved = undefined,  // 默认显示所有任务，包括未审批的
     page = 1,
     limit = 10,
-    taskType = "ALL",
+    taskType = "ALL", 
     publisherId = undefined,
     publisher = undefined,
     search = undefined
@@ -39,7 +39,7 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
           skip: taskType === "ALL" ? 0 : skip,
           take: taskType === "ALL" ? page * limit : limit,
           include: {
-            publisher: { select: { name: true } },
+            publisher: { select: { id: true, name: true } },
             category: true,
             _count: { select: { subtasks: true } },
           },
@@ -52,7 +52,7 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
           skip: taskType === "ALL" ? 0 : skip,
           take: taskType === "ALL" ? page * limit : limit,
           include: {
-            publisher: { select: { name: true } },
+            publisher: { select: { id: true, name: true } },
             _count: { select: { annotations: true } },
           },
         })
@@ -85,7 +85,7 @@ export async function getTaskStats(params: Omit<TaskQueryParams, 'page' | 'limit
     status = "ALL",
     categoryId = "ALL",
     approved = undefined,
-    taskType = "ALL",
+    taskType = "ALL", 
     search = undefined,
     publisherId = undefined,
     publisher = undefined

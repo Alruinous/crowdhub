@@ -365,7 +365,7 @@ export default function CreateAnnotationTaskPage() {
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="publish-limit">每次数据发布上限</Label>
+                  <Label htmlFor="publish-limit">每人每次数据发布上限</Label>
                   <div className="mt-2">
                     <Input
                       id="publish-limit"
@@ -376,15 +376,16 @@ export default function CreateAnnotationTaskPage() {
                       placeholder="100"
                     />
                     <p className="text-sm text-muted-foreground mt-1">
-                      每次最多发布多少条数据（单位：条）
+                      每次最多给每人发布多少条数据（单位：条）
                     </p>
                   </div>
                 </div>
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <p className="text-sm text-blue-800">
                     💡 <strong>发布策略说明：</strong><br/>
-                    系统将按照设定的周期自动发布数据。例如：设置周期为 {publishCycle} 天，每次发布 {publishLimit} 条，
-                    则系统每 {publishCycle} 天会自动发布最多 {publishLimit} 条新数据供标注者认领。
+                    系统将按照设定的周期自动发布数据。<br/>
+                    例如：设置周期为 {publishCycle} 天，每人每次发布 {publishLimit} 条，
+                    则系统每 {publishCycle} 天会自动发布最多 {publishLimit} * n（接单人数）条新数据供标注者认领。
                   </p>
                 </div>
               </div>
