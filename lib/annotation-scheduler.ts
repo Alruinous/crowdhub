@@ -7,6 +7,10 @@ import { db } from "@/lib/db";
 
 /**
  * 检查任务是否需要处理
+ * 
+ * 周期单位由环境变量 USE_MINUTE_CYCLE 控制：
+ * - true: 以分钟为单位（用于测试）
+ * - false/未设置: 以天为单位（生产环境）
  */
 function shouldProcessTask(task: {
   publishCycle: number | null;
@@ -29,14 +33,21 @@ function shouldProcessTask(task: {
     return true;
   }
 
-  // 计算距离上次处理的天数
   const now = new Date();
   const diffMs = now.getTime() - task.lastProcessedAt.getTime();
-  const diffDays = diffMs / (1000 * 60 * 60 * 24);
-
-  // 如果超过发布周期，或者距离发布周期已经不足一天，则需要处理
-  // 这样可以确保定时任务在每天0点时能够正确处理前一天发布的任务
-  return diffDays >= task.publishCycle - 1;
+  const useMinuteCycle = process.env.USE_MINUTE_CYCLE === 'true';
+  
+  if (useMinuteCycle) {
+    // 以分钟为单位计算
+    const diffMinutes = diffMs / (1000 * 60);
+    console.log(`[Scheduler] 任务 ${task.id}: 距离上次处理 ${diffMinutes.toFixed(2)} 分钟，周期 ${task.publishCycle} 分钟`);
+    return diffMinutes >= task.publishCycle;
+  } else {
+    // 以天为单位计算
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    console.log(`[Scheduler] 任务 ${task.id}: 距离上次处理 ${diffDays.toFixed(2)} 天，周期 ${task.publishCycle} 天`);
+    return diffDays >= task.publishCycle - 1;
+  }
 }
 
 /**

@@ -15,7 +15,6 @@ import {
 import Link from "next/link";
 import { Eye, FileText, Database } from "lucide-react";
 import { TASK_TYPE_MAP } from "@/lib/task-types";
-import { SubmitAnnotationButton } from "@/components/annotation/submit-annotation-button";
 
 interface TaskListProps {
   tasks: any[];
@@ -191,10 +190,6 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
                   查看详情
                 </Link>
               </Button>
-              {/* 对于工作者，在标注任务卡片上显示提交按钮 */}
-              {showSubmitButton && userRole === "WORKER" && taskType === "annotationTask" && (
-                <SubmitAnnotationButton taskId={taskId} />
-              )}
             </CardFooter>
           </Card>
         );
