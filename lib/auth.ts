@@ -26,40 +26,54 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
+        try {
+          if (!credentials?.email || !credentials?.password) {
+            console.log("[NextAuth] 缺少凭证");
+            return null;
+          }
+
+          const user = await db.user.findUnique({
+            where: {
+              email: credentials.email,
+            },
+          });
+
+          if (!user) {
+            console.log("[NextAuth] 用户不存在:", credentials.email);
+            return null;
+          }
+
+          // Check if user is banned
+          if (user.banned) {
+            console.log("[NextAuth] 用户已被封禁:", credentials.email);
+            throw new Error("Your account has been banned");
+          }
+
+          const isPasswordValid = await compare(
+            credentials.password,
+            user.password
+          );
+
+          if (!isPasswordValid) {
+            console.log("[NextAuth] 密码错误:", credentials.email);
+            return null;
+          }
+
+          console.log("[NextAuth] 登录成功:", credentials.email);
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          };
+        } catch (error) {
+          console.error("[NextAuth] authorize 错误:", error);
+          // 对于封禁用户，抛出错误；其他错误返回 null
+          if (error instanceof Error && error.message.includes("banned")) {
+            throw error;
+          }
           return null;
         }
-
-        const user = await db.user.findUnique({
-          where: {
-            email: credentials.email,
-          },
-        });
-
-        if (!user) {
-          return null;
-        }
-
-        // Check if user is banned
-        if (user.banned) {
-          throw new Error("Your account has been banned");
-        }
-
-        const isPasswordValid = await compare(
-          credentials.password,
-          user.password
-        );
-
-        if (!isPasswordValid) {
-          return null;
-        }
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        };
       },
     }),
   ],

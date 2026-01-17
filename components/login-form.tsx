@@ -49,16 +49,28 @@ export function LoginForm() {
     setIsLoading(true);
 
     try {
+      console.log("[Login] 开始登录请求", { email: values.email });
+      
       const response = await signIn("credentials", {
         email: values.email,
         password: values.password,
         redirect: false,
       });
 
+      console.log("[Login] signIn 响应:", {
+        error: response?.error,
+        ok: response?.ok,
+        status: response?.status,
+        url: response?.url,
+      });
+
       if (response?.error) {
+        console.error("[Login] 登录失败:", response.error);
         toast({
           title: "登录失败",
-          description: "邮箱或密码错误",
+          description: response.error === "CredentialsSignin" 
+            ? "邮箱或密码错误" 
+            : `登录失败: ${response.error}`,
           variant: "destructive",
         });
         return;
@@ -81,9 +93,17 @@ export function LoginForm() {
         }
       }, 100)
     } catch (error) {
+      console.error("[Login] 登录异常:", error);
+      console.error("[Login] 错误详情:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      
       toast({
         title: "发生错误",
-        description: "登录过程中发生错误，请稍后再试",
+        description: error instanceof Error 
+          ? `登录失败: ${error.message}` 
+          : "登录过程中发生错误，请稍后再试",
         variant: "destructive",
       });
     } finally {

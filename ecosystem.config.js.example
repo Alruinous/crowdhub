@@ -1,0 +1,62 @@
+module.exports = {
+  apps: [{
+    name: 'crown-main',
+    script: 'pnpm',
+    args: 'start',
+    cwd: '/root/crown-main',
+
+    // 自动加载 .env 文件（关键！）
+    env_file: '/root/crown-main/.env',
+
+    // 环境变量（env_file 会覆盖这些，但可以设置默认值）
+    env: {
+      NODE_ENV: 'production',
+      PORT: 3000,
+      
+      // ⚠️ 关键：禁用代理（覆盖系统环境变量）
+      http_proxy: '',
+      https_proxy: '',
+      HTTP_PROXY: '',
+      HTTPS_PROXY: '',
+      all_proxy: '',
+      ALL_PROXY: '',
+      
+      // 设置不代理的地址（双重保险）
+      no_proxy: 'localhost,127.0.0.1,39.105.102.196,0.0.0.0,::1',
+      NO_PROXY: 'localhost,127.0.0.1,39.105.102.196,0.0.0.0,::1',
+      
+      // 关键：显式设置 Server Actions 密钥
+      NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: 'KvbqeW/sX/7wfasNxOL5enuB1WJK/U0vcI172AJY5j4=',
+      // 从 .env 文件复制其他变量
+      NEXTAUTH_URL: 'http://39.105.102.196:3000',
+      NEXTAUTH_SECRET: 'xJGZ+/aKc4IsRSzE2BPdCSH9ZxyAXm3R09506JYHOibV4HBrbw86roP0+eF1EVjY',
+      DATABASE_URL: 'file:./dev.db',
+      USE_MINUTE_CYCLE: 'false',
+      CRON_SCHEDULE: '0 0 0 * * *',
+    },
+
+    // 进程配置
+    instances: 1,
+    exec_mode: 'fork',
+    watch: false,
+
+    // 资源限制
+    max_memory_restart: '1G',
+
+    // 日志配置
+    error_file: '/root/crown-main/logs/pm2-error.log',
+    out_file: '/root/crown-main/logs/pm2-out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    merge_logs: true,
+
+    // 自动重启配置
+    autorestart: true,
+    max_restarts: 50,
+    min_uptime: '10s',
+    restart_delay: 4000,
+
+    // 其他配置
+    kill_timeout: 5000,
+    listen_timeout: 3000,
+  }]
+}

@@ -24,6 +24,7 @@ export async function POST(
         id: true,
         status: true,
         publisherId: true,
+        approved: true,
       },
     });
 
@@ -36,6 +37,14 @@ export async function POST(
       return NextResponse.json(
         { error: "只有任务发布者可以发布任务" },
         { status: 403 }
+      );
+    }
+
+    // 检查任务是否已通过管理员审核
+    if (!task.approved) {
+      return NextResponse.json(
+        { error: "任务尚未通过管理员审核，无法发布" },
+        { status: 400 }
       );
     }
 

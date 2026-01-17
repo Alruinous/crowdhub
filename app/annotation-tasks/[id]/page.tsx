@@ -73,7 +73,8 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
   }
 
   // Check if user has claimed this task
-  const hasClaimedTask = task.workers.some(
+  // 安全检查：确保 workers 字段存在且是数组
+  const hasClaimedTask = Array.isArray(task.workers) && task.workers.some(
     (worker) => worker.id === session.user.id
   );
 
