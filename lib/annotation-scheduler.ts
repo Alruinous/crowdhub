@@ -65,18 +65,36 @@ function shouldProcessTask(task: {
  * @param task 需要处理的标注任务（包含完整关联数据）
  */
 async function processTask(task: any): Promise<void> {
+  // 安全检查：确保 task 对象存在且包含必要的字段
+  if (!task) {
+    throw new Error("任务对象不存在");
+  }
+  
+  if (!task.workers) {
+    console.warn(`[Scheduler] ⚠️  任务 ${task.id} 没有 workers 字段，使用空数组`);
+    task.workers = [];
+  }
+  
+  if (!task.annotations) {
+    console.warn(`[Scheduler] ⚠️  任务 ${task.id} 没有 annotations 字段，使用空数组`);
+    task.annotations = [];
+  }
+  
   console.log(`\n[Scheduler] ========================================`);
   console.log(`[Scheduler] 开始处理任务: ${task.title}, ID: ${task.id}`);
   console.log(`[Scheduler] 发布周期: ${task.publishCycle} 天`);
-  console.log(`[Scheduler] 当前workers数量: ${task.workers.length}, 每次发布上限: ${task.publishLimit} 条`);
-  console.log(`[Scheduler] 总数据条数: ${task.annotations.length}`);
+  console.log(`[Scheduler] 当前workers数量: ${task.workers?.length || 0}, 每次发布上限: ${task.publishLimit} 条`);
+  console.log(`[Scheduler] 总数据条数: ${task.annotations?.length || 0}`);
   console.log(`[Scheduler] ========================================\n`);
 
   // ============================================
   // 📝 遍历所有 annotation 并根据状态执行相应操作
   // ============================================
   
-  for (const annotation of task.annotations) {
+  // 确保 annotations 是数组
+  const annotations = Array.isArray(task.annotations) ? task.annotations : [];
+  
+  for (const annotation of annotations) {
     // 跳过已完成的 annotation
     if (annotation.status === 'COMPLETED') {
       continue;

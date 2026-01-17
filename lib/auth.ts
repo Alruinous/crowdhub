@@ -5,7 +5,10 @@ import { db } from "@/lib/db";
 import { compare } from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(db),
+  // 注意：使用 Credentials Provider 时，不需要 Adapter
+  // Adapter 用于 OAuth 提供商的数据库会话存储
+  // Credentials Provider 使用 JWT 策略，不需要数据库会话
+  // adapter: PrismaAdapter(db),  // 已注释，避免与 Credentials Provider 冲突
   session: {
     strategy: "jwt",
   },
@@ -13,6 +16,8 @@ export const authOptions: NextAuthOptions = {
     signIn: "/login",
   },
   secret: process.env.NEXTAUTH_SECRET,
+  // 调试模式：帮助诊断问题（生产环境可以关闭）
+  debug: process.env.NODE_ENV === "development",
   providers: [
     CredentialsProvider({
       name: "Credentials",

@@ -31,6 +31,13 @@ export async function GET(
       return NextResponse.json({ message: "标注任务不存在" }, { status: 404 })
     }
 
+    // 安全检查：确保 workers 字段存在且是数组
+    // 注意：Prisma 在使用 include 时，即使没有关联数据也会返回空数组 []，而不是 undefined
+    if (!Array.isArray(task.workers)) {
+      console.error(`[GetAnnotationData] 任务 ${taskId} 的 workers 字段不存在或不是数组`);
+      return NextResponse.json({ message: "任务数据异常" }, { status: 500 })
+    }
+
     // 验证用户权限：必须是该任务的接单者、发布者或管理员
     const isWorker = task.workers.some(worker => worker.id === userId)
 

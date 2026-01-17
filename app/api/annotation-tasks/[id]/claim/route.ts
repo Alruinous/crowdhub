@@ -65,7 +65,18 @@ export async function POST(
       );
     }
 
-    // 检查用户是否已经认领
+    // 安全检查：确保 workers 字段存在且是数组
+    // 注意：Prisma 在使用 include 时，即使没有关联数据也会返回空数组 []，而不是 undefined
+    // 这个检查主要是防止查询时忘记 include workers 字段的情况
+    if (!Array.isArray(task.workers)) {
+      console.error(`[Claim] 任务 ${taskId} 的 workers 字段不存在或不是数组`);
+      return NextResponse.json(
+        { error: "任务数据异常" },
+        { status: 500 }
+      );
+    }
+
+    // 检查用户是否已经认领（workers 可能是空数组 []，这是正常的）
     const alreadyClaimed = task.workers.some(
       (worker) => worker.id === session.user.id
     );
