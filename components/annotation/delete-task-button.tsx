@@ -47,7 +47,7 @@ export function DeleteTaskButton({ taskId }: DeleteTaskButtonProps) {
 
       // 延迟跳转，让用户看到成功提示
       setTimeout(() => {
-        router.push("/tasklist")
+        router.push("/dashboard")
         router.refresh()
       }, 500)
     } catch (error) {
@@ -72,17 +72,16 @@ export function DeleteTaskButton({ taskId }: DeleteTaskButtonProps) {
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>确认删除任务？</AlertDialogTitle>
-          <AlertDialogDescription className="space-y-2">
-            <p>此操作将永久删除该标注任务及以下所有相关数据：</p>
-            <ul className="list-disc list-inside text-sm space-y-1 pl-2">
-              <li>所有子任务</li>
-              <li>所有标注结果</li>
-              <li>所有标注选择记录</li>
-              <li>相关的聊天消息</li>
-              <li>上传的数据文件</li>
-              <li>上传的标签文件</li>
-            </ul>
-            <p className="text-red-600 font-semibold mt-3">此操作不可撤销，请谨慎操作！</p>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2">
+              <span>此操作将永久删除该标注任务及以下所有相关数据：</span>
+              <ul className="list-disc list-inside text-sm space-y-1 pl-2">
+                <li>所有标注结果</li>
+                <li>上传的数据文件</li>
+                <li>上传的标签文件</li>
+              </ul>
+              <div className="text-red-600 font-semibold mt-3">此操作不可撤销，请谨慎操作！</div>
+            </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

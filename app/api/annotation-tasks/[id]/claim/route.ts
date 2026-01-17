@@ -136,8 +136,8 @@ export async function POST(
         correctCounts[category] = 0;
         totalCounts[category] = 0;
         
-        // 设置 Beta 分布的 α 参数（擅长领域=2，其他=1）
-        alphaValues[category] = isExpertise ? 2 : 1;
+        // 设置 Beta 分布的 α 参数（擅长领域=10，其他=1）
+        alphaValues[category] = isExpertise ? 10 : 1;
         
         // 计算初始能力值: a_ij = (correct_ij + α_ij) / (total_ij + α_ij + β_ij)
         // β_ij 固定为 1

@@ -30,8 +30,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   // Await searchParams before using them
   const resolvedSearchParams = await searchParams
 
-  // Parse search params
-  const statusParam: string = resolvedSearchParams.status || "ALL"
+  // 只展示 OPEN 状态的任务
+  const statusParam: string = "OPEN"
   const categoryParam: string = resolvedSearchParams.category || "ALL"
   const taskTypeParam: string = resolvedSearchParams.taskType || "ALL"
   const searchParam: string = resolvedSearchParams.search || ""

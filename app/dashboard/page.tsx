@@ -137,6 +137,41 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       })
     ])
     
+    // 为每个标注任务获取用户的标注进度
+    const annotationTasksWithProgress = await Promise.all(
+      claimedAnnotationTasks.map(async (task) => {
+        // 获取当前用户在该任务中完成的标注结果数量
+        const finishedCount = await db.annotationResult.count({
+          where: {
+            annotatorId: session.user.id,
+            annotation: {
+              taskId: task.id
+            },
+            isFinished: true
+          }
+        })
+        
+        // 获取当前用户在该任务中的总标注结果数量
+        const totalCount = await db.annotationResult.count({
+          where: {
+            annotatorId: session.user.id,
+            annotation: {
+              taskId: task.id
+            }
+          }
+        })
+        
+        return {
+          ...task,
+          taskType: "annotationTask" as const,
+          annotationProgress: {
+            finished: finishedCount,
+            total: totalCount
+          }
+        }
+      })
+    )
+    
     // 合并两种任务类型
     tasks = [
       // 科普任务的子任务
@@ -144,11 +179,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         ...subtask,
         // 保持subtask结构，task字段包含任务信息
       })),
-      // 标注任务（直接就是任务，添加taskType标记）
-      ...claimedAnnotationTasks.map(task => ({
-        ...task,
-        taskType: "annotationTask" as const
-      }))
+      // 标注任务（包含标注进度）
+      ...annotationTasksWithProgress
     ]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, pageLimit) // 接单者仍限制展示最新若干，可后续改为分页

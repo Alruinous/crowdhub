@@ -78,7 +78,7 @@ async function processTask(task: any): Promise<void> {
   
   for (const annotation of task.annotations) {
     // 跳过已完成的 annotation
-    if (annotation.isfinished) {
+    if (annotation.status === 'COMPLETED') {
       continue;
     }
 
@@ -98,6 +98,21 @@ async function processTask(task: any): Promise<void> {
     where: { id: task.id },
     data: { lastProcessedAt: new Date() },
   });
+
+  // 更高效地检查所有 annotation 是否都为 COMPLETED（数据库查询）
+  const unfinishedCount = await db.annotation.count({
+    where: {
+      taskId: task.id,
+      status: { not: 'COMPLETED' }
+    }
+  });
+  if (unfinishedCount === 0) {
+    await db.annotationTask.update({
+      where: { id: task.id },
+      data: { status: 'COMPLETED' },
+    });
+    console.log(`[Scheduler] 任务 ${task.id} 所有标注已完成，状态已更新为 COMPLETED`);
+  }
 
   console.log(`[Scheduler] ✓ 任务处理逻辑执行完成\n`);
 }
@@ -138,7 +153,6 @@ export async function processAnnotationTasks(): Promise<{
             id: true, 
             status: true, 
             rowIndex: true,
-            isfinished: true,
             requiredCount: true,
             completedCount: true,
             publishedCount: true,
@@ -197,7 +211,6 @@ export async function processTaskById(taskId: string) {
           id: true, 
           status: true, 
           rowIndex: true,
-          isfinished: true,
           requiredCount: true,
           completedCount: true,
           publishedCount: true,
@@ -226,24 +239,271 @@ export async function processTaskById(taskId: string) {
  * 检查annotation正确性
  * 当一条数据的标注完成数量达到要求时调用
  * 
+ * 采用投票机制：
+ * - 判断前两个维度的第一级分类
+ * - 少数服从多数：2人及以上相同则为正确答案
+ * - 三个答案都不同则全部错误
+ * - 只有两个维度都正确才算正确
+ * 
  * @param annotationId 标注数据ID
  * @param taskId 任务ID
  */
 async function checkAnnotationCorrectness(annotationId: string, taskId: string): Promise<void> {
+  console.log(`[Check] 开始检查标注正确性: ${annotationId}`);
   
-  // ============================================
-  // TODO: 实现标注正确性检查逻辑
-  // ============================================
-  // 获取该 annotation 的所有 AnnotationResult
-  // 比较各个标注者的结果，采用加权投票的形式
-  // 计算一致性
-  // 如果一致性达标，标记 isCorrect 为 true
-  // 更新标注者的能力向量（UserAnnotationTaskAbility）
-  // 标记 annotation.isfinished = true
+  // 1. 获取该 annotation 的所有已完成的标注结果
+  const results = await db.annotationResult.findMany({
+    where: {
+      annotationId: annotationId,
+      isFinished: true,
+    },
+    include: {
+      selections: {
+        orderBy: { dimensionIndex: 'asc' }
+      },
+      annotator: {
+        select: { id: true, name: true }
+      }
+    }
+  });
+
+  if (results.length < 3) {
+    console.log(`[Check] 标注结果不足3人，跳过检查 (当前: ${results.length})`);
+    return;
+  }
 
 
-  
+  // 2. 提取前两个维度的第一级分类
+  type UserDimensions = {
+    userId: string;
+    userName: string;
+    dim0: string | null;  // 第一个维度的第一级分类ID
+    dim1: string | null;  // 第二个维度的第一级分类ID
+  };
+
+  const userDimensions: UserDimensions[] = results.map(result => {
+    const dim0Selection = result.selections.find(s => s.dimensionIndex === 0);
+    const dim1Selection = result.selections.find(s => s.dimensionIndex === 1);
+    
+    // 使用 pathNames 提取第一级分类名称
+    const dim0FirstLevel = dim0Selection && dim0Selection.pathNames 
+      ? (JSON.parse(JSON.stringify(dim0Selection.pathNames)) as string[])[0] 
+      : null;
+    const dim1FirstLevel = dim1Selection && dim1Selection.pathNames
+      ? (JSON.parse(JSON.stringify(dim1Selection.pathNames)) as string[])[0] 
+      : null;
+    
+    return {
+      userId: result.annotator.id,
+      userName: result.annotator.name || '未知',
+      dim0: dim0FirstLevel,
+      dim1: dim1FirstLevel,
+    };
+  });
+
+  console.log(`[Check] 用户标注数据:`, userDimensions.map(u => ({
+    name: u.userName,
+    dim0: u.dim0,
+    dim1: u.dim1
+  })));
+
+  // 3. 对每个维度进行投票统计
+  function findMajorityAnswer(values: (string | null)[]): string | null {
+    const counts = new Map<string, number>();
+    
+    values.forEach(val => {
+      if (val) {
+        counts.set(val, (counts.get(val) || 0) + 1);
+      }
+    });
+    
+    // 找出现次数最多的答案
+    let maxCount = 0;
+    let majorityAnswer: string | null = null;
+    
+    counts.forEach((count, answer) => {
+      if (count > maxCount) {
+        maxCount = count;
+        majorityAnswer = answer;
+      } else if (count === maxCount && count > 1) {
+        // 如果有多个答案票数相同且都大于1，设为null表示没有明确多数
+        majorityAnswer = null;
+      }
+    });
+    
+    // 只有2人及以上相同才算有效答案
+    return maxCount >= 2 ? majorityAnswer : null;
+  }
+
+  const correctDim0 = findMajorityAnswer(userDimensions.map(u => u.dim0));
+  const correctDim1 = findMajorityAnswer(userDimensions.map(u => u.dim1));
+
+  console.log(`[Check] 维度0正确答案: ${correctDim0 || '无多数答案'}`);
+  console.log(`[Check] 维度1正确答案: ${correctDim1 || '无多数答案'}`);
+
+  // 4. 判断每个用户的标注是否正确
+  const correctUserIds: string[] = [];
+  const incorrectUserIds: string[] = [];
+
+  userDimensions.forEach(user => {
+    const dim0Correct = correctDim0 !== null && user.dim0 === correctDim0;
+    const dim1Correct = correctDim1 !== null && user.dim1 === correctDim1;
+    
+    // 两个维度都正确才算正确
+    const isCorrect = dim0Correct && dim1Correct;
+    
+    if (isCorrect) {
+      correctUserIds.push(user.userId);
+    } else {
+      incorrectUserIds.push(user.userId);
+    }
+    
+    console.log(`[Check] 用户 ${user.userName}: ${isCorrect ? '✓ 正确' : '✗ 错误'} (dim0: ${dim0Correct}, dim1: ${dim1Correct})`);
+  });
+
+  // 判断是否全员正确
+  const allCorrect = incorrectUserIds.length === 0;
+
+  // 5. 更新每个用户的 AnnotationResult.isCorrect
+  await Promise.all(
+    correctUserIds.map(userId => 
+      db.annotationResult.updateMany({
+        where: {
+          annotationId: annotationId,
+          annotatorId: userId,
+        },
+        data: { isCorrect: true }
+      })
+    )
+  );
+
+  await Promise.all(
+    incorrectUserIds.map(userId => 
+      db.annotationResult.updateMany({
+        where: {
+          annotationId: annotationId,
+          annotatorId: userId,
+        },
+        data: { isCorrect: false }
+      })
+    )
+  );
+
+  // 6. 更新用户能力向量（仅使用维度0）
+  await updateUserAbilities(taskId, correctUserIds, incorrectUserIds, correctDim0);
+
+  // 7. 标记 annotation 为已完成，如果不是全员正确则需要复审
+  await db.annotation.update({
+    where: { id: annotationId },
+    data: { 
+      status: 'COMPLETED',
+      needToReview: !allCorrect  // 不是全员正确则需要复审
+    }
+  });
+
+  console.log(`[Check] ✓ 标注检查完成，正确: ${correctUserIds.length}, 错误: ${incorrectUserIds.length}${!allCorrect ? ' (需要复审)' : ''}`);
 }
+
+/**
+ * 更新用户能力向量（简化版）
+ * 只使用维度0的第一级分类名称来更新能力
+ */
+async function updateUserAbilities(
+  taskId: string,
+  correctUserIds: string[],
+  incorrectUserIds: string[],
+  correctDim0: string | null
+): Promise<void> {
+  
+  if (!correctDim0) {
+    console.log(`[Ability] 没有有效的维度0正确答案，跳过能力更新`);
+    return;
+  }
+
+  console.log(`[Ability] 将更新分类: "${correctDim0}"`);
+
+  // 更新正确用户的能力
+  for (const userId of correctUserIds) {
+    await updateSingleUserAbility(userId, taskId, correctDim0, true);
+  }
+
+  // 更新错误用户的能力
+  for (const userId of incorrectUserIds) {
+    await updateSingleUserAbility(userId, taskId, correctDim0, false);
+  }
+}
+
+/**
+ * 更新单个用户的能力向量（Object格式）
+ * @param userId 用户ID
+ * @param taskId 任务ID
+ * @param categoryName 分类名称（如"天文地理"）
+ * @param isCorrect 是否标注正确
+ */
+async function updateSingleUserAbility(
+  userId: string,
+  taskId: string,
+  categoryName: string,
+  isCorrect: boolean
+): Promise<void> {
+  
+  // 获取用户能力记录（数据库中已默认存在）
+  const ability = await db.userAnnotationTaskAbility.findUnique({
+    where: {
+      userId_taskId: { userId, taskId }
+    }
+  });
+
+  if (!ability) {
+    console.error(`[Ability] 用户 ${userId} 在任务 ${taskId} 中没有能力记录`);
+    return;
+  }
+
+  // 读取当前统计数据（Object格式）
+  const correctCounts = ability.correctCounts as Record<string, number>;
+  const totalCounts = ability.totalCounts as Record<string, number>;
+  const alphaValues = ability.alphaValues as Record<string, number>;
+  const abilityVector = ability.abilityVector as Record<string, number>;
+
+  // 更新该分类的统计数据
+  totalCounts[categoryName] += 1;
+  if (isCorrect) {
+    correctCounts[categoryName] += 1;
+  }
+  
+  // 使用贝叶斯估计重新计算能力值: (α + correct) / (α + β + total)
+  const alpha = alphaValues[categoryName];
+  const beta = 1;
+  abilityVector[categoryName] = (alpha + correctCounts[categoryName]) / (alpha + beta + totalCounts[categoryName]);
+
+  // 重新计算统计信息
+  const scores = Object.values(abilityVector);
+  const avgScore = scores.length > 0 
+    ? scores.reduce((sum, v) => sum + v, 0) / scores.length 
+    : 0.5;
+  const minScore = scores.length > 0 ? Math.min(...scores) : 0.5;
+  const maxScore = scores.length > 0 ? Math.max(...scores) : 0.5;
+  const totalAnnotations = Object.values(totalCounts).reduce((sum, v) => sum + v, 0);
+
+  // 更新数据库
+  await db.userAnnotationTaskAbility.update({
+    where: {
+      userId_taskId: { userId, taskId }
+    },
+    data: {
+      abilityVector,
+      correctCounts,
+      totalCounts,
+      avgScore,
+      minScore,
+      maxScore,
+      totalAnnotations,
+    }
+  });
+
+  console.log(`[Ability] 更新用户 ${userId} 分类"${categoryName}": 能力=${abilityVector[categoryName].toFixed(3)}, 正确=${correctCounts[categoryName]}/${totalCounts[categoryName]}`);
+}
+
 
 /**
  * 将annotation发放给合适的用户

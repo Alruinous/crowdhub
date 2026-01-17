@@ -210,10 +210,10 @@ model Annotation {
   task      AnnotationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   
   // 标注要求
-  isfinished        Boolean @default(false)  // 是否标注完成
   requiredCount Int @default(3)  // 需要几人标注
   completedCount      Int @default(0)  // 已完成数
   publishedCount      Int @default(0)  // 已发布数(可能发放下去但是有人还没完成)
+  needToReview     Boolean @default(false)  // 是否需要复审
 
   // 能力需求向量（与UserTaskAbility的abilityVector对应）
   requirementVector Json?      // {"天文地理": x, "历史": y, ...}，数据对各标签的能力需求
@@ -264,9 +264,8 @@ model AnnotationResult {
 // 标注选择模型：按维度存储分类路径
 model AnnotationSelection {
   id            String     @id @default(cuid())
-  pathIds       Json                         // string[]，每级分类的ID
-  pathNames     Json?                        // string[]，可选：每级分类的名称，便于导出
-  dimensionName String     @default("默认分类") // 维度名称
+  pathIds       Json                         // string[]，["领域:历史文明", "领域:历史文明>大类:文学", "领域:历史文明>大类:文学>主题:文学", "领域:历史文明>大类:文学>主题:文学>知识点:文学概论"]
+  pathNames     Json?                        // string[]，["历史文明","文学","文学","文学概论"]
   dimensionIndex Int       @default(0)       // 维度索引，用于排序
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
@@ -289,7 +288,7 @@ model UserAnnotationTaskAbility {
   // 贝叶斯统计数据（JSON数组，与abilityVector对应）
   correctCounts Json     // [correct_i1, correct_i2, ..., correct_iN]，每个标签的正确次数
   totalCounts   Json     // [total_i1, total_i2, ..., total_iN]，每个标签的标注总次数
-  alphaValues   Json     // [α_i1, α_i2, ..., α_iN]，Beta分布的α参数（擅长领域=2，其他=1）
+  alphaValues   Json     // [α_i1, α_i2, ..., α_iN]，Beta分布的α参数（擅长领域=2，其他=1），β恒为1
 
   // 预计算的统计信息（加速查询）
   avgScore      Float    @default(0.5)    // 平均能力值
@@ -339,6 +338,7 @@ model LabelFile {
   originalName String                                         // 原始文件名
   path        String                                         // 文件存储路径
   size        Int                                            // 文件大小
+  dimensionNames Json?                                       // 维度名称数组 ["维度1", "维度2"]，用于快速查询维度索引
   data        Json?                                          // 数据内容 (JSON数组)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
@@ -348,45 +348,4 @@ model LabelFile {
   
   @@map("label_files")
 }
-
-// 数据标注子任务模型
-// model AnnotationSubtask {
-//   id          String                   @id @default(cuid())
-//   title       String                                         // 子任务标题
-//   description String?                                        // 子任务描述
-//   points      Int                      @default(0)           // 子任务积分
-//   status      AnnotationSubtaskStatus  @default(OPEN)        // 子任务状态
-//   startRow    Int                                            // 起始行号
-//   endRow      Int                                            // 结束行号
-//   rowCount    Int                                            // 行数
-//   createdAt   DateTime                 @default(now())
-//   updatedAt   DateTime                 @updatedAt
-//   completedAt DateTime?                                      // 完成时间
-  
-//   // 关联关系
-//   task        AnnotationTask           @relation(fields: [taskId], references: [id], onDelete: Cascade)
-//   taskId      String
-//   worker      User?                    @relation("ClaimedAnnotationSubtasks", fields: [workerId], references: [id])
-//   workerId    String?
-//   annotations Annotation[]                                    // 标注结果
-  
-//   @@map("annotation_subtasks")
-// }
-
-// 标注任务消息模型
-// model AnnotationMessage {
-//   id        String   @id @default(cuid())    // 消息唯一标识
-//   content   String                           // 消息内容
-//   createdAt DateTime @default(now())         // 发送时间
-  
-//   // 关联关系
-//   sender    User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
-//   senderId  String                           // 发送者ID
-//   // task      AnnotationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
-//   // taskId    String                           // 所属标注任务ID
-  
-//   @@map("annotation_messages")
-// }
-
-
 

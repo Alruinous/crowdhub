@@ -72,12 +72,7 @@ export async function DELETE(
       return NextResponse.json({ error: "无权限删除该任务" }, { status: 403 })
     }
 
-    // 开始级联删除
-    // Prisma schema 中的 onDelete: Cascade 会自动处理以下级联删除：
-    // - AnnotationSubtask (子任务)
-    // - Annotation (标注结果，通过子任务)
-    // - AnnotationSelection (标注选择，通过标注结果)
-    // - AnnotationMessage (消息)
+  
     
     const dataFileId = task.dataFileId
     const labelFileId = task.labelFileId

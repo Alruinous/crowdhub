@@ -23,6 +23,31 @@ export async function POST(
       );
     }
 
+    // 高效查询：只读取 dimensionNames 字段
+    const task = await db.annotationTask.findUnique({
+      where: { id: taskId },
+      select: {
+        labelFile: {
+          select: { dimensionNames: true }
+        }
+      }
+    });
+
+    if (!task?.labelFile?.dimensionNames) {
+      return NextResponse.json(
+        { error: "任务标签文件不存在或缺少维度信息" },
+        { status: 400 }
+      );
+    }
+
+    // 直接使用预存储的维度名数组构建映射，O(n) 复杂度，n 通常为 2-3
+    const dimensionNames = task.labelFile.dimensionNames as string[];
+    const dimensionNameToIndex = new Map<string, number>();
+    
+    dimensionNames.forEach((name, index) => {
+      dimensionNameToIndex.set(name, index);
+    });
+
     // 在事务中批量处理所有标注
     const result = await db.$transaction(async (tx) => {
       let savedCount = 0;
@@ -64,15 +89,20 @@ export async function POST(
           where: { resultId: annotationResultId },
         });
 
-        // 创建新的 selection 记录
+        // 创建新的 selection 记录，添加 dimensionIndex
         if (selections.length > 0) {
           await tx.annotationSelection.createMany({
-            data: selections.map((sel) => ({
-              resultId: annotationResultId,
-              dimensionName: sel.dimensionName,
-              pathIds: sel.pathIds,
-              pathNames: sel.pathNames || [],
-            })),
+            data: selections.map((sel) => {
+              // 根据 dimensionName 查找对应的 dimensionIndex
+              const dimensionIndex = dimensionNameToIndex.get(sel.dimensionName) ?? 0;
+              
+              return {
+                resultId: annotationResultId,
+                dimensionIndex: dimensionIndex,
+                pathIds: sel.pathIds,
+                pathNames: sel.pathNames || [],
+              };
+            }),
           });
         }
 

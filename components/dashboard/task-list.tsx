@@ -184,6 +184,14 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
               </div>
             </CardContent>
             <CardFooter className="mt-auto flex justify-between items-center gap-2">
+              <div className="flex-1">
+                {/* 显示标注任务的进度 */}
+                {taskType === "annotationTask" && task.annotationProgress && (
+                  <div className="text-xs text-muted-foreground">
+                    标注进度: {task.annotationProgress.finished} / {task.annotationProgress.total}
+                  </div>
+                )}
+              </div>
               <Button asChild variant="outline" size="sm">
                 <Link href={taskLink}>
                   <Eye className="mr-2 h-4 w-4" />

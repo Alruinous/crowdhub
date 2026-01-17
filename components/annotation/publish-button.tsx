@@ -80,7 +80,7 @@ export function PublishButton({ taskId, taskStatus, isPublisher }: PublishButton
           disabled={isPublished}
         >
           <Send className="h-4 w-4" />
-          {isPublished ? "已发布" : "发布任务"}
+          {isPublished ? "已发布" : "发布"}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>

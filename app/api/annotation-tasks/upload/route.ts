@@ -85,6 +85,9 @@ export async function POST(request: NextRequest) {
           )
         }
         
+        // 提取维度名称数组，用于快速查询
+        const dimensionNames = parsedData.dimensions.map((d: any) => d.name);
+        
         // 创建 LabelFile 记录
         const labelFile = await db.labelFile.create({
           data: {
@@ -92,6 +95,7 @@ export async function POST(request: NextRequest) {
             originalName: file.name,
             path: `/uploads/label-${Date.now()}.${file.name.split('.').pop()}`,
             size: file.size,
+            dimensionNames: dimensionNames,  // 保存维度名称数组
             data: parsedData as any // 使用类型断言处理 JSON 类型
           }
         })

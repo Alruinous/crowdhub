@@ -324,14 +324,15 @@ export default function AnnotationPage({
       setCurrentIndex((i) => i + 1);
       setCurrentDimensionIndex(0);
     }
-  };
-
-  const handlePrev = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex((i) => i - 1);
-      setCurrentDimensionIndex(0);
+    // 只有在已经是最后一页时才提示
+    if (currentIndex === annotationResults.length - 1) {
+      toast({
+        description: "已完成当前所有标注任务！",
+        variant: "default",
+      });
     }
   };
+
 
   // 分类查找和处理函数
   const findCategoryById = (id: string): LabelCategory | null => {
@@ -581,60 +582,47 @@ export default function AnnotationPage({
   // 保存标注数据
   const handleSave = async () => {
     setIsSaving(true);
-    
     try {
-      // 筛选出标注完整的条目，并过滤出完整路径的 selections
-      const completeAnnotations = annotationResults
-        .map((result) => {
-          const rowIndex = result.annotation.rowIndex;
-          const annotationData = annotations[rowIndex];
-          
-          // 检查该条目是否完整
-          if (annotationData && isAnnotationComplete(annotationData)) {
-            // 过滤出完整路径的 selections（排除前缀行）
-            const completeSelections = annotationData.selections.filter((sel) => {
-              const depth = dimensionDepths[sel.dimensionName] || 0;
-              return sel.pathIds.length === depth && sel.pathIds.length > 0;
-            });
-
-            return {
-              annotationResultId: result.id,
-              selections: completeSelections,
-            };
-          }
-          return null;
-        })
-        .filter(Boolean) as Array<{
-          annotationResultId: string;
-          selections: AnnotationSelection[];
-        }>;
-
-      if (completeAnnotations.length === 0) {
+      // 只保存当前条目
+      console.log("currentResult:", currentResult);
+      console.log("currentAnnotation:", currentAnnotation);
+      if (!currentResult || !currentAnnotation) {
+        toast({ description: "无当前条目可保存" });
         setIsSaving(false);
         return;
       }
-
-      // 批量发送所有完整标注到 API
+      if (!isAnnotationComplete(currentAnnotation)) {
+        toast({ description: "请先完成当前条目" });
+        setIsSaving(false);
+        return;
+      }
+      // 只取当前条目的完整 selections
+      const completeSelections = currentAnnotation.selections.filter((sel) => {
+        const depth = dimensionDepths[sel.dimensionName] || 0;
+        return sel.pathIds.length === depth && sel.pathIds.length > 0;
+      });
+      console.log("completeSelections:", completeSelections);
+      const payload = [{
+        annotationResultId: currentResult.id,
+        selections: completeSelections,
+      }];
+      console.log("保存标注数据，payload:", payload);
       const response = await fetch(
         `/api/annotation-tasks/${taskId}/save-annotations`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ annotations: completeAnnotations }),
+          body: JSON.stringify({ annotations: payload }),
         }
       );
-
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || "保存标注失败");
       }
-
       const result = await response.json();
-
-      toast({
-        description: result.message,
-      });
-
+      // toast({ description: result.message });
+      // 保存成功后自动进入下一条
+      handleNext();
     } catch (error) {
       console.error("保存标注失败:", error);
       toast({
@@ -768,11 +756,6 @@ export default function AnnotationPage({
           <h1 className="text-2xl font-bold tracking-wide">
             {taskInfo.taskName || "数据标注"}
           </h1>
-          {taskInfo.description && (
-            <p className="text-sm text-muted-foreground">
-              {taskInfo.description}
-            </p>
-          )}
         </div>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1173,32 +1156,12 @@ export default function AnnotationPage({
           <CardContent className="p-4">
             <div className="flex flex-col gap-2">
               <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePrev}
-                disabled={currentIndex === 0}
-                className="w-full justify-center"
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                上一条
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleNext}
-                disabled={currentIndex === annotationResults.length - 1}
-                className="w-full justify-center"
-              >
-                下一条
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-              <Button
                 onClick={handleSave}
                 disabled={isSaving}
                 className="w-full"
               >
                 <Save className="h-4 w-4 mr-2" />
-                {isSaving ? "保存中..." : "保存标注"}
+                {isSaving ? "保存中..." : "保存"}
               </Button>
               <div className="flex justify-center">
                 <Badge variant="secondary" className="select-none text-xs">
@@ -1209,7 +1172,7 @@ export default function AnnotationPage({
           </CardContent>
         </Card>
         <p className="text-xs text-orange-600 text-center mt-2">
-          离开时记得点"保存标注"哦！
+          保存成功后自动进入下一条
         </p>
       </div>
     </DashboardShell>

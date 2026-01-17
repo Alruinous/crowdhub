@@ -77,6 +77,36 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
     (worker) => worker.id === session.user.id
   );
 
+  // 获取当前用户的标注进度数据
+  let userAnnotationProgress = null;
+  if (session.user.role === "WORKER" && hasClaimedTask) {
+    // 获取当前用户在该任务中完成的标注结果数量
+    const finishedCount = await db.annotationResult.count({
+      where: {
+        annotatorId: session.user.id,
+        annotation: {
+          taskId: task.id
+        },
+        isFinished: true
+      }
+    });
+    
+    // 获取当前用户在该任务中的总标注结果数量
+    const totalCount = await db.annotationResult.count({
+      where: {
+        annotatorId: session.user.id,
+        annotation: {
+          taskId: task.id
+        }
+      }
+    });
+    
+    userAnnotationProgress = {
+      finished: finishedCount,
+      total: totalCount
+    };
+  }
+
   return (
     <DashboardShell>
       <DashboardHeader
@@ -145,9 +175,9 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
               <CardTitle>任务描述</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground">
+              <div className="text-sm text-muted-foreground whitespace-pre-line leading-[2.1]">
                 {task.description || "暂无详细描述"}
-              </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -190,6 +220,15 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
                     {task._count.workers} / {task.maxWorkers}
                   </span>
                 </div>
+                {/* 个人标注进度 - 仅对已认领该任务的工作者显示 */}
+                {userAnnotationProgress && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">个人标注进度:</span>
+                    <span className="font-medium">
+                      {userAnnotationProgress.finished} / {userAnnotationProgress.total}
+                    </span>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
