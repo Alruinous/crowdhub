@@ -6,7 +6,7 @@ declare global {
 
 // ⚠️ 修复：生产环境也要使用全局实例，避免连接积累
 export const db = globalThis.prisma || new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  log: ['error', 'warn'], // 只记录错误和警告，不记录查询日志
 })
 
 // 生产环境也要使用全局实例，避免每次导入都创建新连接

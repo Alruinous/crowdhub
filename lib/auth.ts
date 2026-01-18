@@ -16,8 +16,7 @@ export const authOptions: NextAuthOptions = {
     signIn: "/login",
   },
   secret: process.env.NEXTAUTH_SECRET,
-  // 调试模式：帮助诊断问题（生产环境可以关闭）
-  debug: process.env.NODE_ENV === "development",
+
   providers: [
     CredentialsProvider({
       name: "Credentials",
