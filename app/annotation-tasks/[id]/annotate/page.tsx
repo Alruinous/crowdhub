@@ -581,59 +581,59 @@ export default function AnnotationPage({
 
   // 保存标注数据
   const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      // 只保存当前条目
-      console.log("currentResult:", currentResult);
-      console.log("currentAnnotation:", currentAnnotation);
-      if (!currentResult || !currentAnnotation) {
-        toast({ description: "无当前条目可保存" });
-        setIsSaving(false);
-        return;
-      }
-      if (!isAnnotationComplete(currentAnnotation)) {
-        toast({ description: "请先完成当前条目" });
-        setIsSaving(false);
-        return;
-      }
-      // 只取当前条目的完整 selections
-      const completeSelections = currentAnnotation.selections.filter((sel) => {
-        const depth = dimensionDepths[sel.dimensionName] || 0;
-        return sel.pathIds.length === depth && sel.pathIds.length > 0;
-      });
-      console.log("completeSelections:", completeSelections);
-      const payload = [{
-        annotationResultId: currentResult.id,
-        selections: completeSelections,
-      }];
-      console.log("保存标注数据，payload:", payload);
-      const response = await fetch(
-        `/api/annotation-tasks/${taskId}/save-annotations`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ annotations: payload }),
-        }
-      );
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "保存标注失败");
-      }
-      const result = await response.json();
-      // toast({ description: result.message });
-      // 保存成功后自动进入下一条
-      handleNext();
-    } catch (error) {
-      console.error("保存标注失败:", error);
-      toast({
-        title: "保存失败",
-        description:
-          error instanceof Error ? error.message : "保存标注时发生错误",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSaving(false);
-    }
+    // setIsSaving(true);
+    // try {
+    //   // 只保存当前条目
+    //   console.log("currentResult:", currentResult);
+    //   console.log("currentAnnotation:", currentAnnotation);
+    //   if (!currentResult || !currentAnnotation) {
+    //     toast({ description: "无当前条目可保存" });
+    //     setIsSaving(false);
+    //     return;
+    //   }
+    //   if (!isAnnotationComplete(currentAnnotation)) {
+    //     toast({ description: "请先完成当前条目" });
+    //     setIsSaving(false);
+    //     return;
+    //   }
+    //   // 只取当前条目的完整 selections
+    //   const completeSelections = currentAnnotation.selections.filter((sel) => {
+    //     const depth = dimensionDepths[sel.dimensionName] || 0;
+    //     return sel.pathIds.length === depth && sel.pathIds.length > 0;
+    //   });
+    //   console.log("completeSelections:", completeSelections);
+    //   const payload = [{
+    //     annotationResultId: currentResult.id,
+    //     selections: completeSelections,
+    //   }];
+    //   console.log("保存标注数据，payload:", payload);
+    //   const response = await fetch(
+    //     `/api/annotation-tasks/${taskId}/save-annotations`,
+    //     {
+    //       method: "POST",
+    //       headers: { "Content-Type": "application/json" },
+    //       body: JSON.stringify({ annotations: payload }),
+    //     }
+    //   );
+    //   if (!response.ok) {
+    //     const error = await response.json();
+    //     throw new Error(error.error || "保存标注失败");
+    //   }
+    //   const result = await response.json();
+    //   // toast({ description: result.message });
+    //   // 保存成功后自动进入下一条
+    //   handleNext();
+    // } catch (error) {
+    //   console.error("保存标注失败:", error);
+    //   toast({
+    //     title: "保存失败",
+    //     description:
+    //       error instanceof Error ? error.message : "保存标注时发生错误",
+    //     variant: "destructive",
+    //   });
+    // } finally {
+    //   setIsSaving(false);
+    // }
   };
 
   // 多选终级：同步复选结果 -> selection rows
