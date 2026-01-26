@@ -253,19 +253,10 @@ export async function processTaskById(taskId: string) {
   return { success: true, message: "任务处理完成" };
 }
 
-/**
- * 检查annotation正确性
- * 当一条数据的标注完成数量达到要求时调用
- * 
- * 采用投票机制：
- * - 判断前两个维度的第一级分类
- * - 少数服从多数：2人及以上相同则为正确答案
- * - 三个答案都不同则全部错误
- * - 只有两个维度都正确才算正确
- * 
- * @param annotationId 标注数据ID
- * @param taskId 任务ID
- */
+
+
+
+//一条数据两个人标
 async function checkAnnotationCorrectness(annotationId: string, taskId: string): Promise<void> {
   console.log(`[Check] 开始检查标注正确性: ${annotationId}`);
   
@@ -285,11 +276,16 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
     }
   });
 
-  if (results.length < 3) {
-    console.log(`[Check] 标注结果不足3人，跳过检查 (当前: ${results.length})`);
+  if (results.length < 2) {
+    console.log(`[Check] 标注结果不足2人，跳过检查 (当前: ${results.length})`);
     return;
   }
 
+  // 如果结果超过2个，只取前2个（理论上不应该发生，但为了健壮性）
+  if (results.length > 2) {
+    console.warn(`[Check] 警告：标注结果超过2人 (当前: ${results.length})，只使用前2个结果`);
+  }
+  const resultsToUse = results.slice(0, 2);
 
   // 2. 提取前两个维度的第一级分类
   type UserDimensions = {
@@ -299,7 +295,7 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
     dim1: string | null;  // 第二个维度的第一级分类ID
   };
 
-  const userDimensions: UserDimensions[] = results.map(result => {
+  const userDimensions: UserDimensions[] = resultsToUse.map(result => {
     const dim0Selection = result.selections.find(s => s.dimensionIndex === 0);
     const dim1Selection = result.selections.find(s => s.dimensionIndex === 1);
     
@@ -325,62 +321,36 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
     dim1: u.dim1
   })));
 
-  // 3. 对每个维度进行投票统计
-  function findMajorityAnswer(values: (string | null)[]): string | null {
-    const counts = new Map<string, number>();
-    
-    values.forEach(val => {
-      if (val) {
-        counts.set(val, (counts.get(val) || 0) + 1);
-      }
-    });
-    
-    // 找出现次数最多的答案
-    let maxCount = 0;
-    let majorityAnswer: string | null = null;
-    
-    counts.forEach((count, answer) => {
-      if (count > maxCount) {
-        maxCount = count;
-        majorityAnswer = answer;
-      } else if (count === maxCount && count > 1) {
-        // 如果有多个答案票数相同且都大于1，设为null表示没有明确多数
-        majorityAnswer = null;
-      }
-    });
-    
-    // 只有2人及以上相同才算有效答案
-    return maxCount >= 2 ? majorityAnswer : null;
-  }
+  // 3. 判断两个用户的标注是否相同（两个维度都必须相同）
+  // 对于2人标注：两人结果相同为正确，否则全错
+  const user1 = userDimensions[0];
+  const user2 = userDimensions[1];
+  
+  const dim0Match = user1.dim0 === user2.dim0;
+  const dim1Match = user1.dim1 === user2.dim1;
+  const allMatch = dim0Match && dim1Match;
 
-  const correctDim0 = findMajorityAnswer(userDimensions.map(u => u.dim0));
-  const correctDim1 = findMajorityAnswer(userDimensions.map(u => u.dim1));
-
-  console.log(`[Check] 维度0正确答案: ${correctDim0 || '无多数答案'}`);
-  console.log(`[Check] 维度1正确答案: ${correctDim1 || '无多数答案'}`);
+  console.log(`[Check] 维度0是否一致: ${dim0Match ? '✓' : '✗'} (用户1: ${user1.dim0}, 用户2: ${user2.dim0})`);
+  console.log(`[Check] 维度1是否一致: ${dim1Match ? '✓' : '✗'} (用户1: ${user1.dim1}, 用户2: ${user2.dim1})`);
 
   // 4. 判断每个用户的标注是否正确
   const correctUserIds: string[] = [];
   const incorrectUserIds: string[] = [];
 
-  userDimensions.forEach(user => {
-    const dim0Correct = correctDim0 !== null && user.dim0 === correctDim0;
-    const dim1Correct = correctDim1 !== null && user.dim1 === correctDim1;
-    
-    // 两个维度都正确才算正确
-    const isCorrect = dim0Correct && dim1Correct;
-    
-    if (isCorrect) {
-      correctUserIds.push(user.userId);
-    } else {
-      incorrectUserIds.push(user.userId);
-    }
-    
-    console.log(`[Check] 用户 ${user.userName}: ${isCorrect ? '✓ 正确' : '✗ 错误'} (dim0: ${dim0Correct}, dim1: ${dim1Correct})`);
-  });
+  if (allMatch) {
+    // 两个维度都相同，两个人都正确
+    correctUserIds.push(user1.userId, user2.userId);
+    console.log(`[Check] 用户 ${user1.userName}: ✓ 正确`);
+    console.log(`[Check] 用户 ${user2.userName}: ✓ 正确`);
+  } else {
+    // 有任何维度不同，两个人都错误
+    incorrectUserIds.push(user1.userId, user2.userId);
+    console.log(`[Check] 用户 ${user1.userName}: ✗ 错误`);
+    console.log(`[Check] 用户 ${user2.userName}: ✗ 错误`);
+  }
 
-  // 判断是否全员正确
-  const allCorrect = incorrectUserIds.length === 0;
+  // 用于更新用户能力向量的正确答案（如果两人一致，使用任意一人的答案；否则为null）
+  const correctDim0 = allMatch ? user1.dim0 : null;
 
   // 5. 更新每个用户的 AnnotationResult.isCorrect
   await Promise.all(
@@ -410,17 +380,192 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
   // 6. 更新用户能力向量（仅使用维度0）
   await updateUserAbilities(taskId, correctUserIds, incorrectUserIds, correctDim0);
 
-  // 7. 标记 annotation 为已完成，如果不是全员正确则需要复审
+  // 7. 标记 annotation 为已完成，如果两人不一致则需要复审
   await db.annotation.update({
     where: { id: annotationId },
     data: { 
       status: 'COMPLETED',
-      needToReview: !allCorrect  // 不是全员正确则需要复审
+      needToReview: !allMatch  // 两人不一致则需要复审
     }
   });
 
-  console.log(`[Check] ✓ 标注检查完成，正确: ${correctUserIds.length}, 错误: ${incorrectUserIds.length}${!allCorrect ? ' (需要复审)' : ''}`);
+  console.log(`[Check] ✓ 标注检查完成，正确: ${correctUserIds.length}, 错误: ${incorrectUserIds.length}${!allMatch ? ' (需要复审)' : ''}`);
 }
+
+
+
+
+/**
+ * 检查annotation正确性（已废弃的旧版本，保留作为参考）
+ * 当一条数据的标注完成数量达到要求时调用
+ * 
+ * 旧版本采用投票机制（3人标注）：
+ * - 判断前两个维度的第一级分类
+ * - 少数服从多数：2人及以上相同则为正确答案
+ * - 三个答案都不同则全部错误
+ * - 只有两个维度都正确才算正确
+ * 
+ * 新版本（2人标注）：
+ * - 两人结果相同为正确，否则全错
+ * 
+ * @param annotationId 标注数据ID
+ * @param taskId 任务ID
+ */
+// async function checkAnnotationCorrectness(annotationId: string, taskId: string): Promise<void> {
+//   console.log(`[Check] 开始检查标注正确性: ${annotationId}`);
+  
+//   // 1. 获取该 annotation 的所有已完成的标注结果
+//   const results = await db.annotationResult.findMany({
+//     where: {
+//       annotationId: annotationId,
+//       isFinished: true,
+//     },
+//     include: {
+//       selections: {
+//         orderBy: { dimensionIndex: 'asc' }
+//       },
+//       annotator: {
+//         select: { id: true, name: true }
+//       }
+//     }
+//   });
+
+//   if (results.length < 3) {
+//     console.log(`[Check] 标注结果不足3人，跳过检查 (当前: ${results.length})`);
+//     return;
+//   }
+
+
+//   // 2. 提取前两个维度的第一级分类
+//   type UserDimensions = {
+//     userId: string;
+//     userName: string;
+//     dim0: string | null;  // 第一个维度的第一级分类ID
+//     dim1: string | null;  // 第二个维度的第一级分类ID
+//   };
+
+//   const userDimensions: UserDimensions[] = results.map(result => {
+//     const dim0Selection = result.selections.find(s => s.dimensionIndex === 0);
+//     const dim1Selection = result.selections.find(s => s.dimensionIndex === 1);
+    
+//     // 使用 pathNames 提取第一级分类名称
+//     const dim0FirstLevel = dim0Selection && dim0Selection.pathNames 
+//       ? (JSON.parse(JSON.stringify(dim0Selection.pathNames)) as string[])[0] 
+//       : null;
+//     const dim1FirstLevel = dim1Selection && dim1Selection.pathNames
+//       ? (JSON.parse(JSON.stringify(dim1Selection.pathNames)) as string[])[0] 
+//       : null;
+    
+//     return {
+//       userId: result.annotator.id,
+//       userName: result.annotator.name || '未知',
+//       dim0: dim0FirstLevel,
+//       dim1: dim1FirstLevel,
+//     };
+//   });
+
+//   console.log(`[Check] 用户标注数据:`, userDimensions.map(u => ({
+//     name: u.userName,
+//     dim0: u.dim0,
+//     dim1: u.dim1
+//   })));
+
+//   // 3. 对每个维度进行投票统计
+//   function findMajorityAnswer(values: (string | null)[]): string | null {
+//     const counts = new Map<string, number>();
+    
+//     values.forEach(val => {
+//       if (val) {
+//         counts.set(val, (counts.get(val) || 0) + 1);
+//       }
+//     });
+    
+//     // 找出现次数最多的答案
+//     let maxCount = 0;
+//     let majorityAnswer: string | null = null;
+    
+//     counts.forEach((count, answer) => {
+//       if (count > maxCount) {
+//         maxCount = count;
+//         majorityAnswer = answer;
+//       } else if (count === maxCount && count > 1) {
+//         // 如果有多个答案票数相同且都大于1，设为null表示没有明确多数
+//         majorityAnswer = null;
+//       }
+//     });
+    
+//     // 只有2人及以上相同才算有效答案
+//     return maxCount >= 2 ? majorityAnswer : null;
+//   }
+
+//   const correctDim0 = findMajorityAnswer(userDimensions.map(u => u.dim0));
+//   const correctDim1 = findMajorityAnswer(userDimensions.map(u => u.dim1));
+
+//   console.log(`[Check] 维度0正确答案: ${correctDim0 || '无多数答案'}`);
+//   console.log(`[Check] 维度1正确答案: ${correctDim1 || '无多数答案'}`);
+
+//   // 4. 判断每个用户的标注是否正确
+//   const correctUserIds: string[] = [];
+//   const incorrectUserIds: string[] = [];
+
+//   userDimensions.forEach(user => {
+//     const dim0Correct = correctDim0 !== null && user.dim0 === correctDim0;
+//     const dim1Correct = correctDim1 !== null && user.dim1 === correctDim1;
+    
+//     // 两个维度都正确才算正确
+//     const isCorrect = dim0Correct && dim1Correct;
+    
+//     if (isCorrect) {
+//       correctUserIds.push(user.userId);
+//     } else {
+//       incorrectUserIds.push(user.userId);
+//     }
+    
+//     console.log(`[Check] 用户 ${user.userName}: ${isCorrect ? '✓ 正确' : '✗ 错误'} (dim0: ${dim0Correct}, dim1: ${dim1Correct})`);
+//   });
+
+//   // 判断是否全员正确
+//   const allCorrect = incorrectUserIds.length === 0;
+
+//   // 5. 更新每个用户的 AnnotationResult.isCorrect
+//   await Promise.all(
+//     correctUserIds.map(userId => 
+//       db.annotationResult.updateMany({
+//         where: {
+//           annotationId: annotationId,
+//           annotatorId: userId,
+//         },
+//         data: { isCorrect: true }
+//       })
+//     )
+//   );
+
+//   await Promise.all(
+//     incorrectUserIds.map(userId => 
+//       db.annotationResult.updateMany({
+//         where: {
+//           annotationId: annotationId,
+//           annotatorId: userId,
+//         },
+//         data: { isCorrect: false }
+//       })
+//     )
+//   );
+
+//   // 6. 更新用户能力向量（仅使用维度0）
+//   await updateUserAbilities(taskId, correctUserIds, incorrectUserIds, correctDim0);
+
+//   // 7. 标记 annotation 为已完成，如果不是全员正确则需要复审
+//   await db.annotation.update({
+//     where: { id: annotationId },
+//     data: { 
+//       status: 'COMPLETED',
+//       needToReview: !allCorrect  // 不是全员正确则需要复审
+//     }
+//   });
+
+//   console.log(`[Check] ✓ 标注检查完成，正确: ${correctUserIds.length}, 错误: ${incorrectUserIds.length}${!allCorrect ? ' (需要复审)' : ''}`);
+// }
 
 /**
  * 更新用户能力向量（简化版）

@@ -210,7 +210,7 @@ model Annotation {
   task      AnnotationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   
   // 标注要求
-  requiredCount Int @default(3)  // 需要几人标注
+  requiredCount Int @default(2)  // 需要几人标注
   completedCount      Int @default(0)  // 已完成数
   publishedCount      Int @default(0)  // 已发布数(可能发放下去但是有人还没完成)
   needToReview     Boolean @default(false)  // 是否需要复审
