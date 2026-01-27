@@ -762,7 +762,7 @@ export default function AnnotationPage({
         <div className="lg:col-span-2">
           <Card>
             <CardHeader>
-              <CardTitle>数据内容</CardTitle>
+              <CardTitle>条目{currentResult?.annotation.rowIndex ?? ''}</CardTitle>
               {/* <CardDescription>
                 当前条目 {currentIndex + 1} / {dataRows.length}
               </CardDescription> */}
