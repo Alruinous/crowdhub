@@ -612,11 +612,11 @@ async function updateUserAbilities(
 ): Promise<void> {
   
   if (!correctDim0) {
-    console.log(`[Ability] 没有有效的维度0正确答案，跳过能力更新`);
+    if (enableDebugLogs) console.log(`[Ability] 没有有效的维度0正确答案，跳过能力更新`);
     return;
   }
 
-  console.log(`[Ability] 将更新分类: "${correctDim0}"`);
+  if (enableDebugLogs) console.log(`[Ability] 将更新分类: "${correctDim0}"`);
 
   // 更新正确用户的能力
   for (const userId of correctUserIds) {
@@ -651,7 +651,7 @@ async function updateSingleUserAbility(
   });
 
   if (!ability) {
-    console.error(`[Ability] 用户 ${userId} 在任务 ${taskId} 中没有能力记录`);
+    if (enableDebugLogs) console.error(`[Ability] 用户 ${userId} 在任务 ${taskId} 中没有能力记录`);
     return;
   }
 
@@ -697,7 +697,7 @@ async function updateSingleUserAbility(
     }
   });
 
-  console.log(`[Ability] 更新用户 ${userId} 分类"${categoryName}": 能力=${abilityVector[categoryName].toFixed(3)}, 正确=${correctCounts[categoryName]}/${totalCounts[categoryName]}`);
+  if (enableDebugLogs) console.log(`[Ability] 更新用户 ${userId} 分类"${categoryName}": 能力=${abilityVector[categoryName].toFixed(3)}, 正确=${correctCounts[categoryName]}/${totalCounts[categoryName]}`);
 }
 
 
