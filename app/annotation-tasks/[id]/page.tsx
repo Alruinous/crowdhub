@@ -14,6 +14,7 @@ import { ExportButton } from "@/components/annotation/export-button";
 import { DeleteTaskButton } from "@/components/annotation/delete-task-button";
 import { ClaimButton } from "@/components/annotation/claim-button";
 import { PublishButton } from "@/components/annotation/publish-button";
+import { RecheckCorrectnessButton } from "@/components/annotation/recheck-correctness-button";
 
 interface AnnotationTaskPageProps {
   params: {
@@ -48,6 +49,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           id: true,
           status: true,
           rowIndex: true,
+          needToReview: true,
         },
       },
       _count: {
@@ -77,6 +79,62 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
   const hasClaimedTask = Array.isArray(task.workers) && task.workers.some(
     (worker) => worker.id === session.user.id
   );
+
+  // 发布者/管理员可见：任务完成条目中的复审数、每人完成情况与复审率
+  const isPublisherOrAdmin = task.publisher.id === session.user.id || session.user.role === "ADMIN";
+  let taskReviewStats: {
+    completedCount: number;
+    needReviewCount: number;
+    workerStats: { userId: string; name: string; total: number; finished: number; needReview: number }[];
+  } | null = null;
+
+  if (isPublisherOrAdmin && task.workers.length > 0) {
+    const completedAnnotations = task.annotations.filter((a) => a.status === "COMPLETED");
+    const completedCount = completedAnnotations.length;
+    const needReviewCount = completedAnnotations.filter((a) => a.needToReview).length;
+
+    // 每人：总需标注数、已完成数、其中需要复审数（基于该人已完成的条目且该条目被标为需复审）
+    const resultRows = await db.annotationResult.findMany({
+      where: { annotation: { taskId: task.id } },
+      select: {
+        annotatorId: true,
+        isFinished: true,
+        annotation: { select: { needToReview: true } },
+      },
+    });
+
+    const workerStatsMap = new Map<
+      string,
+      { total: number; finished: number; needReview: number }
+    >();
+    for (const w of task.workers) {
+      workerStatsMap.set(w.id, { total: 0, finished: 0, needReview: 0 });
+    }
+    for (const r of resultRows) {
+      const cur = workerStatsMap.get(r.annotatorId);
+      if (!cur) continue;
+      cur.total += 1;
+      if (r.isFinished) {
+        cur.finished += 1;
+        if (r.annotation.needToReview) cur.needReview += 1;
+      }
+    }
+
+    taskReviewStats = {
+      completedCount,
+      needReviewCount,
+      workerStats: task.workers.map((w) => {
+        const s = workerStatsMap.get(w.id) ?? { total: 0, finished: 0, needReview: 0 };
+        return {
+          userId: w.id,
+          name: w.name,
+          total: s.total,
+          finished: s.finished,
+          needReview: s.needReview,
+        };
+      }),
+    };
+  }
 
   // 获取当前用户的标注进度数据
   let userAnnotationProgress = null;
@@ -210,9 +268,9 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             <CardContent>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">已完成/总数据:</span>
+                  <span className="text-muted-foreground">需复审/已完成/总数据:</span>
                   <span className="font-medium">
-                    {task.annotations.filter(a => a.status === "COMPLETED").length} / {task._count.annotations}
+                    {task.annotations.filter(a => a.status === "COMPLETED" && a.needToReview).length} / {task.annotations.filter(a => a.status === "COMPLETED").length} / {task._count.annotations}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -251,7 +309,64 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           </div>
         </div>
       </div>
-      
+
+      {/* 发布者可见：任务完成与复审状态、每人完成情况与复审率 */}
+      {isPublisherOrAdmin && taskReviewStats && (
+        <Card className="mt-6">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle>任务状态</CardTitle>
+            <RecheckCorrectnessButton taskId={taskId} />
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {taskReviewStats.workerStats.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium mb-3">每人任务完成情况与复审率</h4>
+                <div className="rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="text-left p-3 font-medium">标注员</th>
+                        <th className="text-right p-3 font-medium">已完成 / 总需标注</th>
+                        <th className="text-right p-3 font-medium">复审率（需复审/已完成）</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {taskReviewStats.workerStats.map((ws) => (
+                        <tr key={ws.userId} className="border-b last:border-0">
+                          <td className="p-3">{ws.name}</td>
+                          <td className="p-3">
+                            <span className="flex justify-end items-baseline gap-6">
+                              <span className="tabular-nums">{ws.finished} / {ws.total}</span>
+                              {ws.total > 0 && (
+                                <span className={ws.finished / ws.total * 100 < 40 ? "text-red-500" : "text-muted-foreground"}>
+                                  {(ws.finished / ws.total * 100).toFixed(1)}%
+                                </span>
+                              )}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            {ws.finished === 0 ? (
+                              <span className="flex justify-end">—</span>
+                            ) : (
+                              <span className="flex justify-end items-baseline gap-6">
+                                <span className="tabular-nums">{ws.needReview} / {ws.finished}</span>
+                                <span className={(ws.needReview / ws.finished) * 100 > 70 ? "text-red-500" : "text-muted-foreground"}>
+                                  {((ws.needReview / ws.finished) * 100).toFixed(1)}%
+                                </span>
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
     </DashboardShell>
   );
 }

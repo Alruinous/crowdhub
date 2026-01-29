@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { enableDebugLogs } from "@/lib/debug";
 
 /**
  * 标注任务自动调度器
@@ -258,7 +259,7 @@ export async function processTaskById(taskId: string) {
 
 //一条数据两个人标
 async function checkAnnotationCorrectness(annotationId: string, taskId: string): Promise<void> {
-  console.log(`[Check] 开始检查标注正确性: ${annotationId}`);
+  if (enableDebugLogs) console.log(`[Check] 开始检查标注正确性: ${annotationId}`);
   
   // 1. 获取该 annotation 的所有已完成的标注结果
   const results = await db.annotationResult.findMany({
@@ -277,12 +278,12 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
   });
 
   if (results.length < 2) {
-    console.log(`[Check] 标注结果不足2人，跳过检查 (当前: ${results.length})`);
+    if (enableDebugLogs) console.log(`[Check] 标注结果不足2人，跳过检查 (当前: ${results.length})`);
     return;
   }
 
   // 如果结果超过2个，只取前2个（理论上不应该发生，但为了健壮性）
-  if (results.length > 2) {
+  if (results.length > 2 && enableDebugLogs) {
     console.warn(`[Check] 警告：标注结果超过2人 (当前: ${results.length})，只使用前2个结果`);
   }
   const resultsToUse = results.slice(0, 2);
@@ -315,11 +316,13 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
     };
   });
 
-  console.log(`[Check] 用户标注数据:`, userDimensions.map(u => ({
-    name: u.userName,
-    dim0: u.dim0,
-    dim1: u.dim1
-  })));
+  if (enableDebugLogs) {
+    console.log(`[Check] 用户标注数据:`, userDimensions.map(u => ({
+      name: u.userName,
+      dim0: u.dim0,
+      dim1: u.dim1
+    })));
+  }
 
   // 3. 判断两个用户的标注是否相同（两个维度都必须相同）
   // 对于2人标注：两人结果相同为正确，否则全错
@@ -330,8 +333,10 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
   const dim1Match = user1.dim1 === user2.dim1;
   const allMatch = dim0Match && dim1Match;
 
-  console.log(`[Check] 维度0是否一致: ${dim0Match ? '✓' : '✗'} (用户1: ${user1.dim0}, 用户2: ${user2.dim0})`);
-  console.log(`[Check] 维度1是否一致: ${dim1Match ? '✓' : '✗'} (用户1: ${user1.dim1}, 用户2: ${user2.dim1})`);
+  if (enableDebugLogs) {
+    console.log(`[Check] 维度0是否一致: ${dim0Match ? '✓' : '✗'} (用户1: ${user1.dim0}, 用户2: ${user2.dim0})`);
+    console.log(`[Check] 维度1是否一致: ${dim1Match ? '✓' : '✗'} (用户1: ${user1.dim1}, 用户2: ${user2.dim1})`);
+  }
 
   // 4. 判断每个用户的标注是否正确
   const correctUserIds: string[] = [];
@@ -340,13 +345,17 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
   if (allMatch) {
     // 两个维度都相同，两个人都正确
     correctUserIds.push(user1.userId, user2.userId);
-    console.log(`[Check] 用户 ${user1.userName}: ✓ 正确`);
-    console.log(`[Check] 用户 ${user2.userName}: ✓ 正确`);
+    if (enableDebugLogs) {
+      console.log(`[Check] 用户 ${user1.userName}: ✓ 正确`);
+      console.log(`[Check] 用户 ${user2.userName}: ✓ 正确`);
+    }
   } else {
     // 有任何维度不同，两个人都错误
     incorrectUserIds.push(user1.userId, user2.userId);
-    console.log(`[Check] 用户 ${user1.userName}: ✗ 错误`);
-    console.log(`[Check] 用户 ${user2.userName}: ✗ 错误`);
+    if (enableDebugLogs) {
+      console.log(`[Check] 用户 ${user1.userName}: ✗ 错误`);
+      console.log(`[Check] 用户 ${user2.userName}: ✗ 错误`);
+    }
   }
 
   // 用于更新用户能力向量的正确答案（如果两人一致，使用任意一人的答案；否则为null）
@@ -389,7 +398,31 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
     }
   });
 
-  console.log(`[Check] ✓ 标注检查完成，正确: ${correctUserIds.length}, 错误: ${incorrectUserIds.length}${!allMatch ? ' (需要复审)' : ''}`);
+  if (enableDebugLogs) {
+    console.log(`[Check] ✓ 标注检查完成，正确: ${correctUserIds.length}, 错误: ${incorrectUserIds.length}${!allMatch ? ' (需要复审)' : ''}`);
+  }
+}
+
+/**
+ * 重新检查整个任务的标注正确性（供发布者手动触发）
+ * 对任务中所有「已完成人数达到要求」的条目依次调用 checkAnnotationCorrectness
+ * @param taskId 任务ID
+ */
+export async function recheckTaskCorrectness(taskId: string): Promise<{ checked: number }> {
+  const annotations = await db.annotation.findMany({
+    where: { taskId },
+    select: { id: true, status: true, requiredCount: true, completedCount: true },
+  });
+
+  console.log("enableDebugLogs", enableDebugLogs);
+  // 只处理：人数已达标且尚未被标记为已完成的条目（已完成的直接跳过）
+  const toCheck = annotations.filter(
+    (a) => a.status !== "COMPLETED" && a.completedCount >= a.requiredCount
+  );
+  for (const ann of toCheck) {
+    await checkAnnotationCorrectness(ann.id, taskId);
+  }
+  return { checked: toCheck.length };
 }
 
 
