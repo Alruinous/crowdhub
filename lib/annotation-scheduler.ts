@@ -414,7 +414,7 @@ export async function recheckTaskCorrectness(taskId: string): Promise<{ checked:
     select: { id: true, status: true, requiredCount: true, completedCount: true },
   });
 
-  console.log("enableDebugLogs", enableDebugLogs);
+  // console.log("enableDebugLogs", enableDebugLogs);
   // 只处理：人数已达标且尚未被标记为已完成的条目（已完成的直接跳过）
   const toCheck = annotations.filter(
     (a) => a.status !== "COMPLETED" && a.completedCount >= a.requiredCount
@@ -700,6 +700,215 @@ async function updateSingleUserAbility(
   if (enableDebugLogs) console.log(`[Ability] 更新用户 ${userId} 分类"${categoryName}": 能力=${abilityVector[categoryName].toFixed(3)}, 正确=${correctCounts[categoryName]}/${totalCounts[categoryName]}`);
 }
 
+/**
+ * 回滚单次能力更新（撤销时用）：totalCounts[category]-=1，若 isCorrect 则 correctCounts[category]-=1，重算 abilityVector 等
+ */
+async function rollbackSingleUserAbility(
+  userId: string,
+  taskId: string,
+  categoryName: string,
+  wasCorrect: boolean
+): Promise<void> {
+  const ability = await db.userAnnotationTaskAbility.findUnique({
+    where: { userId_taskId: { userId, taskId } },
+  });
+  if (!ability) return;
+
+  const correctCounts = { ...(ability.correctCounts as Record<string, number>) };
+  const totalCounts = { ...(ability.totalCounts as Record<string, number>) };
+  const alphaValues = ability.alphaValues as Record<string, number>;
+  const abilityVector = { ...(ability.abilityVector as Record<string, number>) };
+
+  if (totalCounts[categoryName] == null || totalCounts[categoryName] <= 0) return;
+  totalCounts[categoryName] -= 1;
+  if (wasCorrect && correctCounts[categoryName] != null && correctCounts[categoryName] > 0) {
+    correctCounts[categoryName] -= 1;
+  }
+
+  const alpha = alphaValues[categoryName];
+  const beta = 1;
+  abilityVector[categoryName] = (alpha + correctCounts[categoryName]) / (alpha + beta + totalCounts[categoryName]);
+
+  const scores = Object.values(abilityVector);
+  const avgScore = scores.length > 0 ? scores.reduce((s, v) => s + v, 0) / scores.length : 0.5;
+  const minScore = scores.length > 0 ? Math.min(...scores) : 0.5;
+  const maxScore = scores.length > 0 ? Math.max(...scores) : 0.5;
+  const totalAnnotations = Object.values(totalCounts).reduce((s, v) => s + v, 0);
+
+  await db.userAnnotationTaskAbility.update({
+    where: { userId_taskId: { userId, taskId } },
+    data: {
+      abilityVector,
+      correctCounts,
+      totalCounts,
+      avgScore,
+      minScore,
+      maxScore,
+      totalAnnotations,
+    },
+  });
+}
+
+/**
+ * 撤销某用户在某天发放的所有 AnnotationResult：清空完成状态与 selections，回滚 annotation.completedCount/status/needToReview，回滚用户能力
+ * @param taskId 任务 ID
+ * @param userId 用户 ID
+ * @param date 日期 YYYY-MM-DD（按 AnnotationResult.createdAt 所在日筛选）
+ */
+export async function undoUserDayResults(
+  taskId: string,
+  userId: string,
+  date: string
+): Promise<{ undone: number }> {
+  const [y, m, d] = date.split("-").map(Number);
+  if (!y || !m || !d) throw new Error("日期格式应为 YYYY-MM-DD");
+  const start = new Date(y, m - 1, d, 0, 0, 0, 0);
+  const end = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
+
+  const results = await db.annotationResult.findMany({
+    where: {
+      annotatorId: userId,
+      annotation: { taskId },
+      createdAt: { gte: start, lt: end },
+    },
+    include: {
+      annotation: { select: { id: true, requiredCount: true, completedCount: true } },
+      selections: { orderBy: { dimensionIndex: "asc" } },
+    },
+  });
+
+  let undone = 0;
+  const annotationUpdates = new Map<string, { completedCount: number; requiredCount: number }>();
+
+  for (const r of results) {
+    const wasFinished = r.isFinished;
+    let categoryName: string | null = null;
+    if (r.selections.length > 0) {
+      const dim0 = r.selections.find((s) => s.dimensionIndex === 0);
+      if (dim0?.pathNames) {
+        const names = JSON.parse(JSON.stringify(dim0.pathNames)) as string[];
+        if (names[0]) categoryName = names[0];
+      }
+    }
+
+    if (wasFinished && categoryName) {
+      await rollbackSingleUserAbility(userId, taskId, categoryName, r.isCorrect === true);
+    }
+
+    await db.annotationSelection.deleteMany({ where: { resultId: r.id } });
+    await db.annotationResult.update({
+      where: { id: r.id },
+      data: { isFinished: false, isCorrect: null, completedAt: null },
+    });
+
+    if (wasFinished) {
+      undone += 1;
+      const ann = r.annotation;
+      const prev = annotationUpdates.get(ann.id) ?? {
+        completedCount: ann.completedCount,
+        requiredCount: ann.requiredCount,
+      };
+      annotationUpdates.set(ann.id, {
+        ...prev,
+        completedCount: prev.completedCount - 1,
+      });
+    }
+  }
+
+  for (const [annotationId, { completedCount: newCompleted, requiredCount }] of annotationUpdates) {
+    await db.annotation.update({
+      where: { id: annotationId },
+      data: {
+        completedCount: newCompleted,
+        ...(newCompleted < requiredCount
+          ? { status: "PENDING" as const, needToReview: false }
+          : {}),
+      },
+    });
+    if (newCompleted < requiredCount) {
+      await db.annotationResult.updateMany({
+        where: { annotationId },
+        data: { isCorrect: null },
+      });
+    }
+  }
+
+  return { undone };
+}
+
+/**
+ * 回滚某条 annotation 下某标注者的结果（用 taskId + rowIndex 定位 annotation）
+ * @param taskId 任务 ID
+ * @param rowIndex annotation 的 rowIndex
+ * @param annotatorId 标注者用户 ID
+ */
+export async function undoSingleAnnotationResult(
+  taskId: string,
+  rowIndex: number,
+  annotatorId: string
+): Promise<{ undone: boolean }> {
+  const annotation = await db.annotation.findUnique({
+    where: { taskId_rowIndex: { taskId, rowIndex } },
+    select: { id: true, requiredCount: true, completedCount: true },
+  });
+  if (!annotation) throw new Error("该条目不存在");
+
+  const result = await db.annotationResult.findUnique({
+    where: {
+      annotationId_annotatorId: { annotationId: annotation.id, annotatorId },
+    },
+    include: {
+      selections: { orderBy: { dimensionIndex: "asc" } },
+    },
+  });
+  if (!result) throw new Error("该标注者在此条目下无标注结果");
+
+  const wasFinished = result.isFinished;
+  let categoryName: string | null = null;
+  if (result.selections.length > 0) {
+    const dim0 = result.selections.find((s) => s.dimensionIndex === 0);
+    if (dim0?.pathNames) {
+      const names = JSON.parse(JSON.stringify(dim0.pathNames)) as string[];
+      if (names[0]) categoryName = names[0];
+    }
+  }
+
+  if (wasFinished && categoryName) {
+    await rollbackSingleUserAbility(
+      annotatorId,
+      taskId,
+      categoryName,
+      result.isCorrect === true
+    );
+  }
+
+  await db.annotationSelection.deleteMany({ where: { resultId: result.id } });
+  await db.annotationResult.update({
+    where: { id: result.id },
+    data: { isFinished: false, isCorrect: null, completedAt: null },
+  });
+
+  if (!wasFinished) return { undone: true };
+
+  const newCompleted = annotation.completedCount - 1;
+  await db.annotation.update({
+    where: { id: annotation.id },
+    data: {
+      completedCount: newCompleted,
+      ...(newCompleted < annotation.requiredCount
+        ? { status: "PENDING" as const, needToReview: false }
+        : {}),
+    },
+  });
+  if (newCompleted < annotation.requiredCount) {
+    await db.annotationResult.updateMany({
+      where: { annotationId: annotation.id },
+      data: { isCorrect: null },
+    });
+  }
+
+  return { undone: true };
+}
 
 /**
  * 将annotation发放给合适的用户

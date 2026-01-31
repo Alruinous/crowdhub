@@ -15,6 +15,8 @@ import { DeleteTaskButton } from "@/components/annotation/delete-task-button";
 import { ClaimButton } from "@/components/annotation/claim-button";
 import { PublishButton } from "@/components/annotation/publish-button";
 import { RecheckCorrectnessButton } from "@/components/annotation/recheck-correctness-button";
+import { UndoAnnotationForm } from "@/components/annotation/undo-annotation-form";
+import { UndoSelfAnnotationForm } from "@/components/annotation/undo-self-annotation-form";
 
 interface AnnotationTaskPageProps {
   params: {
@@ -292,6 +294,14 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             </CardContent>
           </Card>
 
+          {/* 标注者可见：回滚自己的某条标注 */}
+          {hasClaimedTask && (
+            <UndoSelfAnnotationForm
+              taskId={taskId}
+              currentUserId={session.user.id}
+            />
+          )}
+
           {/* Worker用户显示认领/开始标注按钮，发布者显示发布按钮 */}
           <div className="flex justify-end gap-3">
             <PublishButton 
@@ -307,6 +317,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
               labelFileData={task.labelFile?.data as any}
             />
           </div>
+          
         </div>
       </div>
 
@@ -363,6 +374,10 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
                 </div>
               </div>
             )}
+            <UndoAnnotationForm
+              taskId={taskId}
+              workers={task.workers.map((w) => ({ userId: w.id, name: w.name }))}
+            />
           </CardContent>
         </Card>
       )}
