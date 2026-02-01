@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { enableDebugLogs } from "@/lib/debug";
 import * as XLSX from "xlsx";
 
 export async function GET(
@@ -173,11 +174,15 @@ export async function GET(
         };
       }
 
-      console.log(`[Export] 处理annotation[${annIdx}], rowIndex: ${rowIndex}, results数量: ${annotation.results.length}`);
-      
+      if (enableDebugLogs) {
+        console.log(`[Export] 处理annotation[${annIdx}], rowIndex: ${rowIndex}, results数量: ${annotation.results.length}`);
+      }
+
       annotation.results.forEach((result, resIdx) => {
         totalResults++;
-        console.log(`[Export]   处理result[${resIdx}], 标注者: ${result.annotator.name}, selections数量: ${result.selections.length}`);
+        if (enableDebugLogs) {
+          console.log(`[Export]   处理result[${resIdx}], 标注者: ${result.annotator.name}, selections数量: ${result.selections.length}`);
+        }
         
         annotationsByRowIndex[rowIndex].results.push({
           annotationId: annotation.id,

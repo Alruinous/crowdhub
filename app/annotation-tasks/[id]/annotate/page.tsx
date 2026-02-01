@@ -818,8 +818,8 @@ export default function AnnotationPage({
           {isReviewMode && currentResult?.otherAnnotatorResults && currentResult.otherAnnotatorResults.length > 0 && (
             <Card className="mt-4">
               <CardHeader>
-                <CardTitle className="text-base">他人标注结果</CardTitle>
-                <p className="text-xs text-muted-foreground">以下为其他标注员在本条目的标注，供复审参考</p>
+                <CardTitle className="text-base">参考标注结果</CardTitle>
+                {/* <p className="text-xs text-muted-foreground">以下为其他标注员在本条目的标注，供复审参考</p> */}
               </CardHeader>
               <CardContent className="space-y-4">
                 {currentResult.otherAnnotatorResults.map((other, idx) => (
