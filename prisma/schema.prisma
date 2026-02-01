@@ -34,6 +34,7 @@ model User {
   claimedAnnotationTasks   AnnotationTask[]              @relation("ClaimedAnnotationTasks")
   annotationResults        AnnotationResult[]            @relation("AnnotationResults")
   taskAbilities            UserAnnotationTaskAbility[]   @relation("UserAbilities")
+  annotationTaskReviewers  AnnotationTaskReviewer[]      @relation("AnnotationTaskReviewers")  // 作为复审员的任务
   // annotationMessages      AnnotationMessage[]
 }
 
@@ -195,8 +196,26 @@ model AnnotationTask {
   labelFileId String?               @unique
   annotations Annotation[]                                // 数据条目
   userAbilities UserAnnotationTaskAbility[]               @relation("TaskAbilities")
+  annotationTaskReviewers AnnotationTaskReviewer[]       // 复审员（一级/二级等）
   
   @@map("annotation_tasks")
+}
+
+// 任务-复审员关联：某任务的一级/二级复审员
+model AnnotationTaskReviewer {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      AnnotationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("AnnotationTaskReviewers", fields: [userId], references: [id], onDelete: Cascade)
+  level     Int      // 1=一级复审员，2=二级复审员（后续扩展）
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([taskId, userId, level])  // 同一人在同一任务的同一级别只出现一次
+  @@index([taskId, level])            // 按任务+级别查复审员
+  @@index([userId, taskId])           // 按用户查其复审任务
+  @@map("annotation_task_reviewers")
 }
 
 
@@ -236,7 +255,7 @@ enum AnnotationStatus {
   COMPLETED        // 已完成
 }
 
-// 存储每个用户对某条数据的标注结果
+// 存储每个用户对某条数据的标注结果（含标注员与复审员）
 model AnnotationResult {
   id          String   @id @default(cuid())
   
@@ -246,6 +265,7 @@ model AnnotationResult {
   annotatorId String
   annotator   User @relation("AnnotationResults", fields: [annotatorId], references: [id])
   
+  round       Int      @default(0)  // 0=标注员结果，1=一级复审员结果，2=二级复审员结果（后续扩展）
   isCorrect   Boolean?  // true，false，null（还未完成标注）
   isFinished  Boolean  @default(false)  // 是否标注完成
   
@@ -256,8 +276,9 @@ model AnnotationResult {
   // 关联：一个结果有多个选择（多维度）
   selections  AnnotationSelection[]
   
-  @@unique([annotationId, annotatorId])  // 每人每条数据只能标注一次
-  @@index([annotatorId, isCorrect])      // 支持按用户查询正确率
+  @@unique([annotationId, annotatorId, round])  // 每人每条数据每轮次一条（标注+复审可各一条）
+  @@index([annotatorId, isCorrect])             // 支持按用户查询正确率
+  @@index([annotationId, round])                 // 按条目+轮次查结果
 }
 
 

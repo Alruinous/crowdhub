@@ -185,10 +185,15 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
             </CardContent>
             <CardFooter className="mt-auto flex justify-between items-center gap-2">
               <div className="flex-1">
-                {/* 显示标注任务的进度 */}
-                {taskType === "annotationTask" && task.annotationProgress && (
-                  <div className="text-xs text-muted-foreground">
-                    标注进度: {task.annotationProgress.finished} / {task.annotationProgress.total}
+                {/* 显示标注任务的标注进度与复审进度（仅复审者不显示标注进度） */}
+                {taskType === "annotationTask" && (
+                  <div className="text-xs text-muted-foreground space-y-0.5">
+                    {task.annotationProgress && task.annotationProgress.total > 0 && (
+                      <div>标注进度: {task.annotationProgress.finished} / {task.annotationProgress.total}</div>
+                    )}
+                    {task.reviewerProgress && (
+                      <div>复审进度: {task.reviewerProgress.finished} / {task.reviewerProgress.total}</div>
+                    )}
                   </div>
                 )}
               </div>

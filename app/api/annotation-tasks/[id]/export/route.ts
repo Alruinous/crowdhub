@@ -40,7 +40,7 @@ export async function GET(
           include: {
             results: {
               where: {
-                isFinished: true, // 只导出已完成的标注结果
+                isFinished: true, // 只导出已完成的标注结果（含标注 round=0 与复审 round=1）
               },
               include: {
                 annotator: {

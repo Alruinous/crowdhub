@@ -96,8 +96,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       search: searchValue || undefined,
     })
   } else if (session.user.role === "WORKER") {
-    // 接单者：获取认领的普通任务和标注任务
-    const [claimedSubtasks, claimedAnnotationTasks] = await Promise.all([
+    // 接单者：获取认领的普通任务、认领或担任复审员的标注任务
+    const [claimedSubtasks, workerAnnotationTasks] = await Promise.all([
       // 获取接单者认领的普通任务子任务
       db.subtask.findMany({
         where: {
@@ -116,14 +116,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           },
         },
       }),
-      // 获取接单者认领的标注任务
+      // 获取接单者认领或担任一级复审员的标注任务
       db.annotationTask.findMany({
         where: {
-          workers: {
-            some: {
-              id: session.user.id
-            }
-          },
+          OR: [
+            { workers: { some: { id: session.user.id } } },
+            { annotationTaskReviewers: { some: { userId: session.user.id, level: 1 } } },
+          ],
           ...(searchValue
             ? { title: { contains: searchValue } }
             : {}),
@@ -137,37 +136,49 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       })
     ])
     
-    // 为每个标注任务获取用户的标注进度
+    // 为每个标注任务获取用户的标注进度（round=0）与复审进度（round=1）
     const annotationTasksWithProgress = await Promise.all(
-      claimedAnnotationTasks.map(async (task) => {
-        // 获取当前用户在该任务中完成的标注结果数量
-        const finishedCount = await db.annotationResult.count({
-          where: {
-            annotatorId: session.user.id,
-            annotation: {
-              taskId: task.id
+      workerAnnotationTasks.map(async (task) => {
+        const [annotationFinished, annotationTotal, reviewerFinished, reviewerTotal] = await Promise.all([
+          db.annotationResult.count({
+            where: {
+              annotatorId: session.user.id,
+              annotation: { taskId: task.id },
+              round: 0,
+              isFinished: true,
             },
-            isFinished: true
-          }
-        })
-        
-        // 获取当前用户在该任务中的总标注结果数量
-        const totalCount = await db.annotationResult.count({
-          where: {
-            annotatorId: session.user.id,
-            annotation: {
-              taskId: task.id
-            }
-          }
-        })
-        
+          }),
+          db.annotationResult.count({
+            where: {
+              annotatorId: session.user.id,
+              annotation: { taskId: task.id },
+              round: 0,
+            },
+          }),
+          db.annotationResult.count({
+            where: {
+              annotatorId: session.user.id,
+              annotation: { taskId: task.id },
+              round: 1,
+              isFinished: true,
+            },
+          }),
+          db.annotationResult.count({
+            where: {
+              annotatorId: session.user.id,
+              annotation: { taskId: task.id },
+              round: 1,
+            },
+          }),
+        ])
         return {
           ...task,
           taskType: "annotationTask" as const,
           annotationProgress: {
-            finished: finishedCount,
-            total: totalCount
-          }
+            finished: annotationFinished,
+            total: annotationTotal,
+          },
+          reviewerProgress: reviewerTotal > 0 ? { finished: reviewerFinished, total: reviewerTotal } : undefined,
         }
       })
     )

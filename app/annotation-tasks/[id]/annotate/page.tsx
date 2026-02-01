@@ -32,6 +32,13 @@ import {
   ChevronUp,
 } from "lucide-react";
 
+// 他人标注结果（复审模式下 API 返回）
+interface OtherAnnotatorResult {
+  userId: string;
+  userName?: string;
+  selections: { dimensionIndex: number; pathIds: string[]; pathNames?: string[] }[];
+}
+
 // AnnotationResult from API
 interface AnnotationResultData {
   id: string;
@@ -44,6 +51,8 @@ interface AnnotationResultData {
   };
   isFinished: boolean;
   selections: AnnotationSelection[];
+  /** 复审模式下：该条目上其他标注员（round=0）的标注结果 */
+  otherAnnotatorResults?: OtherAnnotatorResult[];
 }
 
 interface LabelCategory {
@@ -120,6 +129,8 @@ export default function AnnotationPage({
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const { id: taskId } = use(params);
+  const round = searchParams.get("round") === "1" ? 1 : 0;
+  const isReviewMode = round === 1;
 
   // 状态管理
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -158,7 +169,7 @@ export default function AnnotationPage({
       try {
         const [dataRes, labelRes, taskRes] =
           await Promise.all([
-            fetch(`/api/annotation-tasks/${taskId}/get-annotation-data`),
+            fetch(`/api/annotation-tasks/${taskId}/get-annotation-data${isReviewMode ? "?round=1" : ""}`),
             fetch(`/api/annotation-tasks/${taskId}/labels`),
             fetch(`/api/annotation-tasks/${taskId}`)
           ]);
@@ -172,7 +183,7 @@ export default function AnnotationPage({
           : { title: "未知任务" };
         setAnnotationResults(dataJson.data || []);
         setTaskInfo({
-          taskName: taskJson.title || "未知任务",
+          taskName: (taskJson.title || "未知任务") + (isReviewMode ? "（复审）" : ""),
           description: taskJson.description || "",
         });
 
@@ -281,7 +292,7 @@ export default function AnnotationPage({
       }
     };
     loadData();
-  }, [taskId, toast]);
+  }, [taskId, round, toast]);
 
   // 当前数据和维度
   const currentResult = annotationResults[currentIndex];
@@ -803,6 +814,81 @@ export default function AnnotationPage({
               </div>
             </CardContent>
           </Card>
+          {/* 复审模式：展示该条目上其他标注员的标注结果 */}
+          {isReviewMode && currentResult?.otherAnnotatorResults && currentResult.otherAnnotatorResults.length > 0 && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle className="text-base">他人标注结果</CardTitle>
+                <p className="text-xs text-muted-foreground">以下为其他标注员在本条目的标注，供复审参考</p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {currentResult.otherAnnotatorResults.map((other, idx) => (
+                  <div key={other.userId} className="rounded-md border bg-muted/30 p-3 space-y-2">
+                    <div className="text-sm font-medium text-muted-foreground">
+                      标注{idx + 1}
+                    </div>
+                    <div className="text-sm space-y-1">
+                      {(() => {
+                        const valid = other.selections.filter(
+                          (s) => (s.pathNames?.length ?? 0) > 0 || (s.pathIds?.length ?? 0) > 0
+                        );
+                        if (valid.length === 0)
+                          return <span className="text-muted-foreground">暂无完整标注</span>;
+                        // 按维度分组，再按前缀（除最后一级）合并同类项，末级多选合并为一行
+                        const byDim = new Map<number, typeof valid>();
+                        for (const s of valid) {
+                          const dim = s.dimensionIndex;
+                          if (!byDim.has(dim)) byDim.set(dim, []);
+                          byDim.get(dim)!.push(s);
+                        }
+                        const lines: { dimName: string; pathStr: string }[] = [];
+                        byDim.forEach((sels, dimIndex) => {
+                          const dimName = labelDimensions[dimIndex]?.name ?? `维度${dimIndex}`;
+                          const byPrefix = new Map<string, string[]>();
+                          for (const s of sels) {
+                            const pathNames = (s.pathNames ?? []) as string[];
+                            const pathIds = (s.pathIds ?? []) as string[];
+                            const prefix =
+                              pathNames.length > 1
+                                ? pathNames.slice(0, -1).join("|")
+                                : pathIds.length > 1
+                                  ? pathIds.slice(0, -1).join("|")
+                                  : "";
+                            const last =
+                              pathNames.length > 0
+                                ? pathNames[pathNames.length - 1]
+                                : pathIds.length > 0
+                                  ? pathIds[pathIds.length - 1]
+                                  : "";
+                            if (!last) return;
+                            if (!byPrefix.has(prefix)) byPrefix.set(prefix, []);
+                            const arr = byPrefix.get(prefix)!;
+                            if (!arr.includes(last)) arr.push(last);
+                          }
+                          byPrefix.forEach((lasts, prefixKey) => {
+                            const prefixStr =
+                              prefixKey === ""
+                                ? ""
+                                : (prefixKey.split("|").join(" → ") + " → ");
+                            lines.push({
+                              dimName,
+                              pathStr: prefixStr + lasts.join("、"),
+                            });
+                          });
+                        });
+                        return lines.map((line, i) => (
+                          <div key={i} className="flex gap-2">
+                            <span className="text-muted-foreground shrink-0">{line.dimName}:</span>
+                            <span>{line.pathStr}</span>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
         <div className="space-y-6">
           <Card>

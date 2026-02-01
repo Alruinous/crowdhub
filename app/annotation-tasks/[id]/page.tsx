@@ -13,10 +13,14 @@ import { AnnotationTaskStatus } from "@prisma/client";
 import { ExportButton } from "@/components/annotation/export-button";
 import { DeleteTaskButton } from "@/components/annotation/delete-task-button";
 import { ClaimButton } from "@/components/annotation/claim-button";
+import { StartReviewButton } from "@/components/annotation/start-review-button";
 import { PublishButton } from "@/components/annotation/publish-button";
 import { RecheckCorrectnessButton } from "@/components/annotation/recheck-correctness-button";
+import { DistributeReviewButton } from "@/components/annotation/distribute-review-button";
+import { TaskStatusTabs } from "@/components/annotation/task-status-tabs";
 import { UndoAnnotationForm } from "@/components/annotation/undo-annotation-form";
 import { UndoSelfAnnotationForm } from "@/components/annotation/undo-self-annotation-form";
+import { AddReviewerForm } from "@/components/annotation/add-reviewer-form";
 
 interface AnnotationTaskPageProps {
   params: {
@@ -34,7 +38,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
 
   const taskId = (await params).id;
 
-  // Get annotation task with annotations and workers
+  // Get annotation task with annotations, workers, and L1 reviewers
   const task = await db.annotationTask.findUnique({
     where: { id: taskId },
     include: {
@@ -45,6 +49,13 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
       labelFile: true,
       workers: {
         select: { id: true, name: true },
+      },
+      annotationTaskReviewers: {
+        where: { level: 1 },
+        select: {
+          userId: true,
+          user: { select: { id: true, name: true } },
+        },
       },
       annotations: {
         select: { 
@@ -82,8 +93,25 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
     (worker) => worker.id === session.user.id
   );
 
+  // 接单者是否为该任务的一级复审员
+  const isReviewer =
+    Array.isArray(task.annotationTaskReviewers) &&
+    task.annotationTaskReviewers.some((r) => r.userId === session.user.id);
+
   // 发布者/管理员可见：任务完成条目中的复审数、每人完成情况与复审率
   const isPublisherOrAdmin = task.publisher.id === session.user.id || session.user.role === "ADMIN";
+
+  // 发布者/管理员添加复审员时的候选用户（WORKER 角色）
+  let candidateUsersForReviewer: { id: string; name: string }[] = [];
+  if (isPublisherOrAdmin) {
+    const users = await db.user.findMany({
+      where: { role: "WORKER", banned: false },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
+    candidateUsersForReviewer = users;
+  }
+
   let taskReviewStats: {
     completedCount: number;
     needReviewCount: number;
@@ -95,9 +123,12 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
     const completedCount = completedAnnotations.length;
     const needReviewCount = completedAnnotations.filter((a) => a.needToReview).length;
 
-    // 每人：总需标注数、已完成数、其中需要复审数（基于该人已完成的条目且该条目被标为需复审）
+    // 每人：总需标注数、已完成数、其中需要复审数（仅 round=0 标注任务，不含复审 round=1）
     const resultRows = await db.annotationResult.findMany({
-      where: { annotation: { taskId: task.id } },
+      where: {
+        annotation: { taskId: task.id },
+        round: 0,
+      },
       select: {
         annotatorId: true,
         isFinished: true,
@@ -138,28 +169,54 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
     };
   }
 
-  // 获取当前用户的标注进度数据
+  // 发布者/管理员可见：一级复审员在本任务下的复审进度（round=1 已分配/已完成）
+  let reviewerStats: { userId: string; name: string; assigned: number; finished: number }[] = [];
+  if (isPublisherOrAdmin && task.annotationTaskReviewers.length > 0) {
+    const round1Results = await db.annotationResult.findMany({
+      where: {
+        annotation: { taskId: task.id },
+        round: 1,
+      },
+      select: { annotatorId: true, isFinished: true },
+    });
+    const reviewerMap = new Map<string, { assigned: number; finished: number }>();
+    for (const r of task.annotationTaskReviewers) {
+      reviewerMap.set(r.userId, { assigned: 0, finished: 0 });
+    }
+    for (const r of round1Results) {
+      const cur = reviewerMap.get(r.annotatorId);
+      if (!cur) continue;
+      cur.assigned += 1;
+      if (r.isFinished) cur.finished += 1;
+    }
+    reviewerStats = task.annotationTaskReviewers.map((r) => {
+      const s = reviewerMap.get(r.userId) ?? { assigned: 0, finished: 0 };
+      return {
+        userId: r.userId,
+        name: r.user.name,
+        assigned: s.assigned,
+        finished: s.finished,
+      };
+    });
+  }
+
+  // 获取当前用户的标注进度数据（仅 round=0 标注任务）
   let userAnnotationProgress = null;
   if (session.user.role === "WORKER" && hasClaimedTask) {
-    // 获取当前用户在该任务中完成的标注结果数量
     const finishedCount = await db.annotationResult.count({
       where: {
         annotatorId: session.user.id,
-        annotation: {
-          taskId: task.id
-        },
-        isFinished: true
-      }
+        annotation: { taskId: task.id },
+        round: 0,
+        isFinished: true,
+      },
     });
-    
-    // 获取当前用户在该任务中的总标注结果数量
     const totalCount = await db.annotationResult.count({
       where: {
         annotatorId: session.user.id,
-        annotation: {
-          taskId: task.id
-        }
-      }
+        annotation: { taskId: task.id },
+        round: 0,
+      },
     });
     
     userAnnotationProgress = {
@@ -294,6 +351,26 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             </CardContent>
           </Card>
 
+          {/* 发布者/管理员：添加一级复审员 */}
+          {isPublisherOrAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle>添加复审员</CardTitle>
+                {/* <CardDescription>为任务指定一级复审员，需复审的条目将分配给复审员处理</CardDescription> */}
+              </CardHeader>
+              <CardContent>
+                <AddReviewerForm
+                  taskId={taskId}
+                  reviewers={task.annotationTaskReviewers.map((r) => ({
+                    userId: r.userId,
+                    name: r.user.name,
+                  }))}
+                  candidateUsers={candidateUsersForReviewer}
+                />
+              </CardContent>
+            </Card>
+          )}
+
           {/* 标注者可见：回滚自己的某条标注 */}
           {hasClaimedTask && (
             <UndoSelfAnnotationForm
@@ -302,7 +379,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             />
           )}
 
-          {/* Worker用户显示认领/开始标注按钮，发布者显示发布按钮 */}
+          {/* Worker用户显示认领/开始标注/开始复审按钮，发布者显示发布按钮 */}
           <div className="flex justify-end gap-3">
             <PublishButton 
               taskId={taskId} 
@@ -316,70 +393,32 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
               status={task.status}
               labelFileData={task.labelFile?.data as any}
             />
+            {session.user.role === "WORKER" && isReviewer && task.status === "IN_PROGRESS" && (
+              <StartReviewButton taskId={taskId} />
+            )}
           </div>
           
         </div>
       </div>
 
-      {/* 发布者可见：任务完成与复审状态、每人完成情况与复审率 */}
-      {isPublisherOrAdmin && taskReviewStats && (
-        <Card className="mt-6">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0">
-            <CardTitle>任务状态</CardTitle>
-            <RecheckCorrectnessButton taskId={taskId} />
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {taskReviewStats.workerStats.length > 0 && (
-              <div>
-                <h4 className="text-sm font-medium mb-3">每人任务完成情况与复审率</h4>
-                <div className="rounded-md border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="text-left p-3 font-medium">标注员</th>
-                        <th className="text-right p-3 font-medium">已完成 / 总需标注</th>
-                        <th className="text-right p-3 font-medium">复审率（需复审/已完成）</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {taskReviewStats.workerStats.map((ws) => (
-                        <tr key={ws.userId} className="border-b last:border-0">
-                          <td className="p-3">{ws.name}</td>
-                          <td className="p-3">
-                            <span className="flex justify-end items-baseline gap-6">
-                              <span className="tabular-nums">{ws.finished} / {ws.total}</span>
-                              {ws.total > 0 && (
-                                <span className={ws.finished / ws.total * 100 < 40 ? "text-red-500" : "text-muted-foreground"}>
-                                  {(ws.finished / ws.total * 100).toFixed(1)}%
-                                </span>
-                              )}
-                            </span>
-                          </td>
-                          <td className="p-3">
-                            {ws.finished === 0 ? (
-                              <span className="flex justify-end">—</span>
-                            ) : (
-                              <span className="flex justify-end items-baseline gap-6">
-                                <span className="tabular-nums">{ws.needReview} / {ws.finished}</span>
-                                <span className={(ws.needReview / ws.finished) * 100 > 70 ? "text-red-500" : "text-muted-foreground"}>
-                                  {((ws.needReview / ws.finished) * 100).toFixed(1)}%
-                                </span>
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-            <UndoAnnotationForm
-              taskId={taskId}
-              workers={task.workers.map((w) => ({ userId: w.id, name: w.name }))}
-            />
-          </CardContent>
-        </Card>
+      {/* 发布者可见：任务完成与复审状态，可切换标注员/复审员视图 */}
+      {isPublisherOrAdmin && (
+        <TaskStatusTabs
+          taskId={taskId}
+          workerStats={taskReviewStats?.workerStats ?? []}
+          reviewerStats={reviewerStats}
+          workers={task.workers.map((w) => ({ userId: w.id, name: w.name }))}
+          reviewSummary={{
+            totalNeedReview: task.annotations.filter((a) => a.needToReview && a.status === "COMPLETED").length,
+            distributed: reviewerStats.reduce((s, r) => s + r.assigned, 0),
+          }}
+          headerButtons={
+            <>
+              <DistributeReviewButton taskId={taskId} />
+              <RecheckCorrectnessButton taskId={taskId} />
+            </>
+          }
+        />
       )}
 
     </DashboardShell>

@@ -112,6 +112,9 @@ async function processTask(task: any): Promise<void> {
     }
   }
 
+  // 操作3: 将 needToReview 的条目发放给一级复审员（按段连续分配）- 暂时注释，仅支持手动分配
+  // await distributeNeedToReviewToReviewers(task.id);
+
   // 更新任务的 lastProcessedAt 时间
   await db.annotationTask.update({
     where: { id: task.id },
@@ -134,6 +137,64 @@ async function processTask(task: any): Promise<void> {
   }
 
   console.log(`[Scheduler] ✓ 任务处理逻辑执行完成\n`);
+}
+
+const LEVEL_L1_REVIEW = 1;
+
+/**
+ * 将 needToReview 且尚未分配 round=1 的条目发放给一级复审员
+ * 策略：按 rowIndex 升序，按复审员均分段连续分配（第 1 段给 R1，第 2 段给 R2，…）
+ * @param taskId 标注任务 ID
+ * @returns 本次发放的条目数
+ */
+export async function distributeNeedToReviewToReviewers(taskId: string): Promise<number> {
+  const reviewers = await db.annotationTaskReviewer.findMany({
+    where: { taskId, level: LEVEL_L1_REVIEW },
+    orderBy: { userId: "asc" },
+    select: { userId: true },
+  });
+  if (reviewers.length === 0) return 0;
+
+  const annotations = await db.annotation.findMany({
+    where: {
+      taskId,
+      needToReview: true,
+      status: "COMPLETED",
+      results: { none: { round: LEVEL_L1_REVIEW } },
+    },
+    orderBy: { rowIndex: "asc" },
+    select: { id: true, rowIndex: true },
+  });
+  if (annotations.length === 0) return 0;
+
+  const N = annotations.length;
+  const K = reviewers.length;
+  const base = Math.floor(N / K);
+  const remainder = N % K;
+  const toInsert: { annotationId: string; annotatorId: string; round: number }[] = [];
+  let idx = 0;
+  for (let r = 0; r < K; r++) {
+    const count = base + (r < remainder ? 1 : 0);
+    const reviewerId = reviewers[r].userId;
+    for (let c = 0; c < count; c++) {
+      const ann = annotations[idx++];
+      toInsert.push({
+        annotationId: ann.id,
+        annotatorId: reviewerId,
+        round: LEVEL_L1_REVIEW,
+      });
+    }
+  }
+  // 批量插入，每批 500 条避免单次 SQL 参数过多（如 SQLite 限制）
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+    const batch = toInsert.slice(i, i + BATCH_SIZE);
+    await db.annotationResult.createMany({ data: batch });
+  }
+  console.log(
+    `[Scheduler] 已发放 ${N} 条需复审条目给 ${K} 名一级复审员`
+  );
+  return N;
 }
 
 /**
@@ -261,10 +322,11 @@ export async function processTaskById(taskId: string) {
 async function checkAnnotationCorrectness(annotationId: string, taskId: string): Promise<void> {
   if (enableDebugLogs) console.log(`[Check] 开始检查标注正确性: ${annotationId}`);
   
-  // 1. 获取该 annotation 的所有已完成的标注结果
+  // 1. 获取该 annotation 的所有已完成的标注结果（仅 round=0 标注员结果，不含复审员）
   const results = await db.annotationResult.findMany({
     where: {
       annotationId: annotationId,
+      round: 0,
       isFinished: true,
     },
     include: {
@@ -361,13 +423,14 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
   // 用于更新用户能力向量的正确答案（如果两人一致，使用任意一人的答案；否则为null）
   const correctDim0 = allMatch ? user1.dim0 : null;
 
-  // 5. 更新每个用户的 AnnotationResult.isCorrect
+  // 5. 更新每个用户的 AnnotationResult.isCorrect（仅更新 round=0 标注员结果）
   await Promise.all(
     correctUserIds.map(userId => 
       db.annotationResult.updateMany({
         where: {
           annotationId: annotationId,
           annotatorId: userId,
+          round: 0,
         },
         data: { isCorrect: true }
       })
@@ -380,14 +443,17 @@ async function checkAnnotationCorrectness(annotationId: string, taskId: string):
         where: {
           annotationId: annotationId,
           annotatorId: userId,
+          round: 0,
         },
         data: { isCorrect: false }
       })
     )
   );
 
-  // 6. 更新用户能力向量（仅使用维度0）
-  await updateUserAbilities(taskId, correctUserIds, incorrectUserIds, correctDim0);
+  // 6. 更新用户能力向量（仅使用维度0）：仅当两人一致、已确定正确答案时更新；两人不一致（needToReview=true）时不更新，等复审后多数决再更新
+  if (allMatch) {
+    await updateUserAbilities(taskId, correctUserIds, incorrectUserIds, correctDim0);
+  }
 
   // 7. 标记 annotation 为已完成，如果两人不一致则需要复审
   await db.annotation.update({
@@ -765,10 +831,12 @@ export async function undoUserDayResults(
   const start = new Date(y, m - 1, d, 0, 0, 0, 0);
   const end = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
 
+  // 仅回滚标注任务（round=0），不含复审 round=1
   const results = await db.annotationResult.findMany({
     where: {
       annotatorId: userId,
       annotation: { taskId },
+      round: 0,
       createdAt: { gte: start, lt: end },
     },
     include: {
@@ -855,7 +923,11 @@ export async function undoSingleAnnotationResult(
 
   const result = await db.annotationResult.findUnique({
     where: {
-      annotationId_annotatorId: { annotationId: annotation.id, annotatorId },
+      annotationId_annotatorId_round: {
+        annotationId: annotation.id,
+        annotatorId,
+        round: 0,
+      },
     },
     include: {
       selections: { orderBy: { dimensionIndex: "asc" } },
@@ -945,10 +1017,11 @@ async function sendAnnotatioinToUser(annotation: any): Promise<void> {
     return;
   }
   
-  // 查询已经有 AnnotationResult 的用户（提前过滤）
+  // 查询已经有 AnnotationResult 的用户（仅 round=0 标注员，排除已分配的标注员）
   const existingResults = await db.annotationResult.findMany({
     where: {
-      annotationId: annotation.id
+      annotationId: annotation.id,
+      round: 0,
     },
     select: { annotatorId: true }
   });
@@ -974,11 +1047,12 @@ async function sendAnnotatioinToUser(annotation: any): Promise<void> {
   const periodStart = task.lastProcessedAt || task.createdAt;
   const publishLimit = task.publishLimit || 100;
   
-  // 统计每个用户在当前周期已接收的数量
+  // 统计每个用户在当前周期已接收的标注数量（仅 round=0，publishLimit 不包含复审任务）
   const userReceivedCounts = await db.annotationResult.groupBy({
     by: ['annotatorId'],
     where: {
       annotation: { taskId: taskId },
+      round: 0,
       createdAt: { gte: periodStart }
     },
     _count: {
@@ -1044,6 +1118,7 @@ async function sendAnnotatioinToUser(annotation: any): Promise<void> {
       data: {
         annotationId: annotation.id,
         annotatorId: selectedUser.userId,
+        round: 0,
       }
     });
   }
