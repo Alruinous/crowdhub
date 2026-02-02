@@ -81,15 +81,22 @@ export async function POST(
           ? parseInt(body.rowIndex, 10)
           : undefined;
 
+    //按日期回滚
     if (date) {
-      const { undone } = await undoUserDayResults(taskId, userId, date);
+      const { undone, skipped } = await undoUserDayResults(taskId, userId, date);
+      const message =
+        skipped > 0
+          ? `成功回滚 ${undone} 条，${skipped} 条已发放给复审人员无法回滚`
+          : `成功回滚 ${undone} 条`;
       return NextResponse.json({
         success: true,
-        message: `已回滚该用户 ${date} 发放的 ${undone} 条标注结果`,
+        message,
         undone,
+        skipped,
       });
     }
 
+    //按条目序号回滚
     if (rowIndex != null && !Number.isNaN(rowIndex)) {
       if (round === 1) {
         const { undone } = await undoSingleReviewResult(
@@ -103,15 +110,15 @@ export async function POST(
           undone,
         });
       }
-      const { undone } = await undoSingleAnnotationResult(
+      const result = await undoSingleAnnotationResult(
         taskId,
         rowIndex,
         userId
       );
       return NextResponse.json({
         success: true,
-        message: "已回滚该标注者在指定条目的结果，可重新标注",
-        undone,
+        message: result.message ?? "已回滚该标注者在指定条目的结果，可重新标注",
+        undone: result.undone,
       });
     }
 

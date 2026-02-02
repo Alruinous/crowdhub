@@ -816,7 +816,8 @@ async function rollbackSingleUserAbility(
 }
 
 /**
- * 撤销某用户在某天发放的所有 AnnotationResult：清空完成状态与 selections，回滚 annotation.completedCount/status/needToReview，回滚用户能力
+ * 撤销某用户在某天发放的标注结果（round=0）：清空完成状态与 selections，回滚 annotation.completedCount/status/needToReview，回滚用户能力。
+ * 已下发复审的条目（该 annotation 已有 round=1 结果）会跳过，不参与回滚，避免状态错乱。
  * @param taskId 任务 ID
  * @param userId 用户 ID
  * @param date 日期 YYYY-MM-DD（按 AnnotationResult.createdAt 所在日筛选）
@@ -825,7 +826,7 @@ export async function undoUserDayResults(
   taskId: string,
   userId: string,
   date: string
-): Promise<{ undone: number }> {
+): Promise<{ undone: number; skipped: number }> {
   const [y, m, d] = date.split("-").map(Number);
   if (!y || !m || !d) throw new Error("日期格式应为 YYYY-MM-DD");
   const start = new Date(y, m - 1, d, 0, 0, 0, 0);
@@ -845,10 +846,26 @@ export async function undoUserDayResults(
     },
   });
 
+  // 已下发复审的条目（存在 round=1 结果）不参与按天回滚，避免状态错乱
+  const sentToReviewAnnotationIds = new Set(
+    (
+      await db.annotationResult.findMany({
+        where: { annotation: { taskId }, round: 1 },
+        select: { annotationId: true },
+      })
+    ).map((x) => x.annotationId)
+  );
+
   let undone = 0;
+  let skipped = 0;
   const annotationUpdates = new Map<string, { completedCount: number; requiredCount: number }>();
 
   for (const r of results) {
+    if (sentToReviewAnnotationIds.has(r.annotation.id)) {
+      skipped += 1;
+      continue;
+    }
+
     const wasFinished = r.isFinished;
     let categoryName: string | null = null;
     if (r.selections.length > 0) {
@@ -901,7 +918,7 @@ export async function undoUserDayResults(
     }
   }
 
-  return { undone };
+  return { undone, skipped };
 }
 
 /**
@@ -914,12 +931,23 @@ export async function undoSingleAnnotationResult(
   taskId: string,
   rowIndex: number,
   annotatorId: string
-): Promise<{ undone: boolean }> {
+): Promise<{ undone: boolean; message?: string }> {
   const annotation = await db.annotation.findUnique({
     where: { taskId_rowIndex: { taskId, rowIndex } },
     select: { id: true, requiredCount: true, completedCount: true },
   });
   if (!annotation) throw new Error("该条目不存在");
+
+  // 标注员只能回滚「尚未下发复审」的条目，否则会出现状态错乱（回滚后再次需复审会重复下发）
+  const hasReviewAssigned = await db.annotationResult.count({
+    where: { annotationId: annotation.id, round: 1 },
+  });
+  if (hasReviewAssigned > 0) {
+    return {
+      undone: false,
+      message: "该条目已下发复审，无法回滚标注。仅可回滚尚未发放给复审员的条目。",
+    };
+  }
 
   const result = await db.annotationResult.findUnique({
     where: {

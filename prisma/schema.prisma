@@ -182,6 +182,7 @@ model AnnotationTask {
   publishCycle Int?                 @default(1)           // 数据发布周期（天）
   publishLimit Int?                 @default(100)         // 每次每人数据发布上限（条）
   lastProcessedAt DateTime?                               // 上次处理时间（用于周期性任务）
+  lastDistributeReviewAt DateTime?                       // 上次下发复审的时间
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
   completedAt DateTime?                                   // 完成时间

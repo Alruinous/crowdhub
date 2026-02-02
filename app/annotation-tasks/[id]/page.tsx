@@ -115,7 +115,17 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
   let taskReviewStats: {
     completedCount: number;
     needReviewCount: number;
-    workerStats: { userId: string; name: string; total: number; finished: number; needReview: number }[];
+    workerStats: {
+      userId: string;
+      name: string;
+      total: number;
+      finished: number;
+      needReview: number;
+      /** 上次下发复审后的新增已完成（完成时间 > lastDistributeReviewAt） */
+      finishedNotSentToReview: number;
+      /** 上述新增中需复审且尚未下发的条数 */
+      needReviewNotSentToReview: number;
+    }[];
   } | null = null;
 
   if (isPublisherOrAdmin && task.workers.length > 0) {
@@ -123,7 +133,18 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
     const completedCount = completedAnnotations.length;
     const needReviewCount = completedAnnotations.filter((a) => a.needToReview).length;
 
-    // 每人：总需标注数、已完成数、其中需要复审数（仅 round=0 标注任务，不含复审 round=1）
+    // 已下发复审的条目（存在 round=1 结果）的 annotationId
+    const sentToReviewAnnotationIds = new Set(
+      (
+        await db.annotationResult.findMany({
+          where: { annotation: { taskId: task.id }, round: 1 },
+          select: { annotationId: true },
+        })
+      ).map((x) => x.annotationId)
+    );
+
+    // 每人：总需标注数、已完成数、其中需要复审数；以及「复审后新增」= result 完成时间在 lastDistributeReviewAt 之后
+    const lastDistributeReviewAt = task.lastDistributeReviewAt ?? null;
     const resultRows = await db.annotationResult.findMany({
       where: {
         annotation: { taskId: task.id },
@@ -132,16 +153,30 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
       select: {
         annotatorId: true,
         isFinished: true,
-        annotation: { select: { needToReview: true } },
+        completedAt: true,
+        createdAt: true,
+        annotation: { select: { id: true, needToReview: true } },
       },
     });
 
     const workerStatsMap = new Map<
       string,
-      { total: number; finished: number; needReview: number }
+      {
+        total: number;
+        finished: number;
+        needReview: number;
+        finishedNotSentToReview: number;
+        needReviewNotSentToReview: number;
+      }
     >();
     for (const w of task.workers) {
-      workerStatsMap.set(w.id, { total: 0, finished: 0, needReview: 0 });
+      workerStatsMap.set(w.id, {
+        total: 0,
+        finished: 0,
+        needReview: 0,
+        finishedNotSentToReview: 0,
+        needReviewNotSentToReview: 0,
+      });
     }
     for (const r of resultRows) {
       const cur = workerStatsMap.get(r.annotatorId);
@@ -150,6 +185,15 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
       if (r.isFinished) {
         cur.finished += 1;
         if (r.annotation.needToReview) cur.needReview += 1;
+        // 复审后新增：只看 result 的完成时间是否在复审更新时间之后
+        const resultFinishedAt = r.completedAt ?? r.createdAt;
+        const isNewSinceLastDistribute =
+          lastDistributeReviewAt != null && resultFinishedAt > lastDistributeReviewAt;
+        if (isNewSinceLastDistribute) {
+          cur.finishedNotSentToReview += 1;
+          const notSent = !sentToReviewAnnotationIds.has(r.annotation.id);
+          if (r.annotation.needToReview && notSent) cur.needReviewNotSentToReview += 1;
+        }
       }
     }
 
@@ -157,13 +201,21 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
       completedCount,
       needReviewCount,
       workerStats: task.workers.map((w) => {
-        const s = workerStatsMap.get(w.id) ?? { total: 0, finished: 0, needReview: 0 };
+        const s = workerStatsMap.get(w.id) ?? {
+          total: 0,
+          finished: 0,
+          needReview: 0,
+          finishedNotSentToReview: 0,
+          needReviewNotSentToReview: 0,
+        };
         return {
           userId: w.id,
           name: w.name,
           total: s.total,
           finished: s.finished,
           needReview: s.needReview,
+          finishedNotSentToReview: s.finishedNotSentToReview,
+          needReviewNotSentToReview: s.needReviewNotSentToReview,
         };
       }),
     };

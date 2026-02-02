@@ -41,6 +41,14 @@ export async function POST(
 
     const distributed = await distributeNeedToReviewToReviewers(taskId);
 
+    // 仅在实际下发了条目时更新「上次下发复审」时间，避免：刚完成但尚未经正确性判断的 result 被误排除在「复审后新增」之外
+    if (distributed > 0) {
+      await db.annotationTask.update({
+        where: { id: taskId },
+        data: { lastDistributeReviewAt: new Date() },
+      });
+    }
+
     return NextResponse.json({
       success: true,
       message: distributed > 0 ? `已下发 ${distributed} 条需复审条目给一级复审员` : "暂无待下发的需复审条目",

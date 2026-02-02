@@ -10,6 +10,10 @@ export interface WorkerStat {
   total: number;
   finished: number;
   needReview: number;
+  /** 上次下发复审后的新增已完成 */
+  finishedNotSentToReview: number;
+  /** 上述新增中需复审且尚未下发的条数 */
+  needReviewNotSentToReview: number;
 }
 
 export interface ReviewerStat {
@@ -69,6 +73,7 @@ export function TaskStatusTabs({
                     <th className="text-left p-3 font-medium">标注员</th>
                     <th className="text-right p-3 font-medium">已完成 / 总需标注</th>
                     <th className="text-right p-3 font-medium">复审率（需复审/已完成）</th>
+                    <th className="text-right p-3 font-medium">复审后新增：需复审/已完成</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -93,6 +98,26 @@ export function TaskStatusTabs({
                             <span className="tabular-nums">{ws.needReview} / {ws.finished}</span>
                             <span className={(ws.needReview / ws.finished) * 100 > 70 ? "text-red-500" : "text-muted-foreground"}>
                               {((ws.needReview / ws.finished) * 100).toFixed(1)}%
+                            </span>
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        {(ws.finishedNotSentToReview ?? 0) === 0 ? (
+                          <span className="flex justify-end tabular-nums">0 / 0</span>
+                        ) : (
+                          <span className="flex justify-end items-baseline gap-6">
+                            <span className="tabular-nums">
+                              {ws.needReviewNotSentToReview ?? 0} / {ws.finishedNotSentToReview}
+                            </span>
+                            <span
+                              className={
+                                ((ws.needReviewNotSentToReview ?? 0) / (ws.finishedNotSentToReview ?? 1)) * 100 > 70
+                                  ? "text-red-500"
+                                  : "text-muted-foreground"
+                              }
+                            >
+                              {(((ws.needReviewNotSentToReview ?? 0) / (ws.finishedNotSentToReview ?? 1)) * 100).toFixed(1)}%
                             </span>
                           </span>
                         )}
