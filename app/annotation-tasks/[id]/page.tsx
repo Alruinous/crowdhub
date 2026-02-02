@@ -376,6 +376,15 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             <UndoSelfAnnotationForm
               taskId={taskId}
               currentUserId={session.user.id}
+              round={0}
+            />
+          )}
+          {/* 复审员可见：回滚自己的某条复审 */}
+          {isReviewer && (
+            <UndoSelfAnnotationForm
+              taskId={taskId}
+              currentUserId={session.user.id}
+              round={1}
             />
           )}
 

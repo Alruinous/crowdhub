@@ -5,12 +5,14 @@ import { db } from "@/lib/db";
 import {
   undoUserDayResults,
   undoSingleAnnotationResult,
+  undoSingleReviewResult,
 } from "@/lib/annotation-scheduler";
 
 /**
- * 撤销接口：统一处理两种回滚
+ * 撤销接口：统一处理回滚
  * - 按天回滚：body 传 { userId, date }（date 格式 YYYY-MM-DD）
- * - 按条回滚：body 传 { userId, rowIndex }（rowIndex 为数字）
+ * - 按条回滚标注：body 传 { userId, rowIndex } 或 { userId, rowIndex, round: 0 }
+ * - 按条回滚复审：body 传 { userId, rowIndex, round: 1 }
  */
 export async function POST(
   req: Request,
@@ -47,20 +49,22 @@ export async function POST(
       );
     }
 
-    // 标注者只能回滚自己的单条（userId 必须为当前用户，且仅允许 rowIndex）
+    // 非发布者/管理员：只能回滚自己的单条（userId=当前用户），且仅允许 rowIndex（标注 round:0 或复审 round:1）
+    const roundParam = body.round;
+    const round = roundParam === 1 ? 1 : 0;
     if (!isPublisherOrAdmin) {
       if (userId !== session.user.id) {
         return NextResponse.json(
-          { error: "只能回滚自己的标注结果" },
+          { error: "只能回滚自己的结果" },
           { status: 403 }
         );
       }
-      const onlyRowIndex =
+      const hasRowIndex =
         typeof body.rowIndex === "number" ||
         (typeof body.rowIndex === "string" && body.rowIndex !== "" && !Number.isNaN(parseInt(body.rowIndex, 10)));
-      if (!onlyRowIndex || body.date) {
+      if (!hasRowIndex || body.date) {
         return NextResponse.json(
-          { error: "标注者仅支持按条目序号回滚单条" },
+          { error: "仅支持按条目序号回滚单条（标注或复审）" },
           { status: 403 }
         );
       }
@@ -87,6 +91,18 @@ export async function POST(
     }
 
     if (rowIndex != null && !Number.isNaN(rowIndex)) {
+      if (round === 1) {
+        const { undone } = await undoSingleReviewResult(
+          taskId,
+          rowIndex,
+          userId
+        );
+        return NextResponse.json({
+          success: true,
+          message: "已回滚该复审员在指定条目的复审结果，可重新复审",
+          undone,
+        });
+      }
       const { undone } = await undoSingleAnnotationResult(
         taskId,
         rowIndex,

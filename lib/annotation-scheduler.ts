@@ -983,6 +983,44 @@ export async function undoSingleAnnotationResult(
 }
 
 /**
+ * 回滚某条 annotation 下某复审员的复审结果（round=1）
+ * 仅清空该条 round=1 结果，不修改 annotation.completedCount（那是标注 round=0 的）
+ */
+export async function undoSingleReviewResult(
+  taskId: string,
+  rowIndex: number,
+  annotatorId: string
+): Promise<{ undone: boolean }> {
+  const annotation = await db.annotation.findUnique({
+    where: { taskId_rowIndex: { taskId, rowIndex } },
+    select: { id: true },
+  });
+  if (!annotation) throw new Error("该条目不存在");
+
+  const result = await db.annotationResult.findUnique({
+    where: {
+      annotationId_annotatorId_round: {
+        annotationId: annotation.id,
+        annotatorId,
+        round: 1,
+      },
+    },
+    include: {
+      selections: { orderBy: { dimensionIndex: "asc" } },
+    },
+  });
+  if (!result) throw new Error("该复审员在此条目下无复审结果");
+
+  await db.annotationSelection.deleteMany({ where: { resultId: result.id } });
+  await db.annotationResult.update({
+    where: { id: result.id },
+    data: { isFinished: false, isCorrect: null, completedAt: null },
+  });
+
+  return { undone: true };
+}
+
+/**
  * 将annotation发放给合适的用户
  * 根据用户能力向量和数据需求向量的匹配度进行分配
  * 
