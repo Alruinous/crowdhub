@@ -84,7 +84,7 @@ export function TaskStatusTabs({
                         <span className="flex justify-end items-baseline gap-6">
                           <span className="tabular-nums">{ws.finished} / {ws.total}</span>
                           {ws.total > 0 && (
-                            <span className={ws.finished / ws.total * 100 < 40 ? "text-red-500" : "text-muted-foreground"}>
+                            <span className={ws.finished / ws.total * 100 < 50 ? "text-red-500" : "text-muted-foreground"}>
                               {(ws.finished / ws.total * 100).toFixed(1)}%
                             </span>
                           )}
