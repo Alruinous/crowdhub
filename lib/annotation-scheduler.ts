@@ -826,7 +826,7 @@ export async function undoUserDayResults(
   taskId: string,
   userId: string,
   date: string
-): Promise<{ undone: number; skipped: number }> {
+): Promise<{ undone: number; skippedSentToReview: number; skippedNotIncorrect: number }> {
   const [y, m, d] = date.split("-").map(Number);
   if (!y || !m || !d) throw new Error("日期格式应为 YYYY-MM-DD");
   const start = new Date(y, m - 1, d, 0, 0, 0, 0);
@@ -857,12 +857,18 @@ export async function undoUserDayResults(
   );
 
   let undone = 0;
-  let skipped = 0;
+  let skippedSentToReview = 0;
+  let skippedNotIncorrect = 0;
   const annotationUpdates = new Map<string, { completedCount: number; requiredCount: number }>();
 
   for (const r of results) {
     if (sentToReviewAnnotationIds.has(r.annotation.id)) {
-      skipped += 1;
+      skippedSentToReview += 1;
+      continue;
+    }
+    // 只回滚已判定为错误的 result（isCorrect === false），正确或未判定的不回滚
+    if (r.isCorrect !== false) {
+      skippedNotIncorrect += 1;
       continue;
     }
 
@@ -877,7 +883,7 @@ export async function undoUserDayResults(
     }
 
     if (wasFinished && categoryName) {
-      await rollbackSingleUserAbility(userId, taskId, categoryName, r.isCorrect === true);
+      await rollbackSingleUserAbility(userId, taskId, categoryName, false);
     }
 
     await db.annotationSelection.deleteMany({ where: { resultId: r.id } });
@@ -918,7 +924,7 @@ export async function undoUserDayResults(
     }
   }
 
-  return { undone, skipped };
+  return { undone, skippedSentToReview, skippedNotIncorrect };
 }
 
 /**

@@ -83,16 +83,17 @@ export async function POST(
 
     //按日期回滚
     if (date) {
-      const { undone, skipped } = await undoUserDayResults(taskId, userId, date);
-      const message =
-        skipped > 0
-          ? `成功回滚 ${undone} 条，${skipped} 条已发放给复审人员无法回滚`
-          : `成功回滚 ${undone} 条`;
+      const { undone, skippedSentToReview, skippedNotIncorrect } = await undoUserDayResults(taskId, userId, date);
+      const parts = [`成功回滚 ${undone} 条`];
+      if (skippedSentToReview > 0) parts.push(`${skippedSentToReview} 条已发放给复审无法回滚`);
+      if (skippedNotIncorrect > 0) parts.push(`${skippedNotIncorrect} 条非错误未回滚`);
+      const message = parts.join("，");
       return NextResponse.json({
         success: true,
         message,
         undone,
-        skipped,
+        skippedSentToReview,
+        skippedNotIncorrect,
       });
     }
 
