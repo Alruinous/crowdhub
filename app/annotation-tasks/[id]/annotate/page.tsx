@@ -32,8 +32,9 @@ import {
   ChevronUp,
 } from "lucide-react";
 
-// 他人标注结果（复审模式下 API 返回）
+// 他人标注/复审结果（复审模式下 API 返回，round 区分标注/一级复审/二级复审）
 interface OtherAnnotatorResult {
+  round?: number; // 0=标注，1=一级复审，2=二级复审
   userId: string;
   userName?: string;
   selections: { dimensionIndex: number; pathIds: string[]; pathNames?: string[] }[];
@@ -51,7 +52,7 @@ interface AnnotationResultData {
   };
   isFinished: boolean;
   selections: AnnotationSelection[];
-  /** 复审模式下：该条目上其他标注员（round=0）的标注结果 */
+  /** 复审模式下：该条目上其他标注/复审结果（round 0/1/2） */
   otherAnnotatorResults?: OtherAnnotatorResult[];
 }
 
@@ -129,8 +130,9 @@ export default function AnnotationPage({
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const { id: taskId } = use(params);
-  const round = searchParams.get("round") === "1" ? 1 : 0;
-  const isReviewMode = round === 1;
+  const roundParam = searchParams.get("round");
+  const round = roundParam === "2" ? 2 : roundParam === "1" ? 1 : 0;
+  const isReviewMode = round === 1 || round === 2;
 
   // 状态管理
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -169,7 +171,7 @@ export default function AnnotationPage({
       try {
         const [dataRes, labelRes, taskRes] =
           await Promise.all([
-            fetch(`/api/annotation-tasks/${taskId}/get-annotation-data${isReviewMode ? "?round=1" : ""}`),
+            fetch(`/api/annotation-tasks/${taskId}/get-annotation-data${round ? `?round=${round}` : ""}`),
             fetch(`/api/annotation-tasks/${taskId}/labels`),
             fetch(`/api/annotation-tasks/${taskId}`)
           ]);
@@ -183,7 +185,7 @@ export default function AnnotationPage({
           : { title: "未知任务" };
         setAnnotationResults(dataJson.data || []);
         setTaskInfo({
-          taskName: (taskJson.title || "未知任务") + (isReviewMode ? "（复审）" : ""),
+          taskName: (taskJson.title || "未知任务") + (round === 2 ? "（二级复审）" : round === 1 ? "（复审）" : ""),
           description: taskJson.description || "",
         });
 
@@ -819,11 +821,11 @@ export default function AnnotationPage({
             <Card className="mt-4">
               <CardHeader>
                 <CardTitle className="text-base">参考标注结果</CardTitle>
-                {/* <p className="text-xs text-muted-foreground">以下为其他标注员在本条目的标注，供复审参考</p> */}
               </CardHeader>
               <CardContent className="space-y-4">
-                {currentResult.otherAnnotatorResults.map((other, idx) => (
-                  <div key={other.userId} className="rounded-md border bg-muted/30 p-3 space-y-2">
+                {currentResult.otherAnnotatorResults.map((other, idx) => {
+                  return (
+                  <div key={`${other.round ?? 0}-${other.userId}-${idx}`} className="rounded-md border bg-muted/30 p-3 space-y-2">
                     <div className="text-sm font-medium text-muted-foreground">
                       标注{idx + 1}
                     </div>
@@ -885,7 +887,8 @@ export default function AnnotationPage({
                       })()}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           )}

@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { enableDebugLogs } from "@/lib/debug";
 
@@ -103,7 +104,15 @@ async function processTask(task: any): Promise<void> {
 
     // 操作1: 当completedCount等于requiredCount时，判断标注是否正确
     if (annotation.completedCount === annotation.requiredCount) {
-      await checkAnnotationCorrectness(annotation.id, task.id);
+      const result = await checkAnnotationCorrectness(annotation.id, task.id);
+      if (result.abilityUpdate?.correctDim0) {
+        await updateUserAbilities(
+          task.id,
+          result.abilityUpdate.correctUserIds,
+          result.abilityUpdate.incorrectUserIds,
+          result.abilityUpdate.correctDim0
+        );
+      }
     }
 
     // 操作2: 当publishedCount小于requiredCount时，发放数据给workers
@@ -185,16 +194,129 @@ export async function distributeNeedToReviewToReviewers(taskId: string): Promise
       });
     }
   }
-  // 批量插入，每批 500 条避免单次 SQL 参数过多（如 SQLite 限制）
+  // 同一 annotation 不重复发给同一复审员：排除已存在的 (annotationId, annotatorId, round)
+  const annotationIdsL1 = [...new Set(toInsert.map((t) => t.annotationId))];
+  const existingL1 = await db.annotationResult.findMany({
+    where: {
+      annotationId: { in: annotationIdsL1 },
+      round: LEVEL_L1_REVIEW,
+    },
+    select: { annotationId: true, annotatorId: true },
+  });
+  const existingSetL1 = new Set(existingL1.map((e) => `${e.annotationId}:${e.annotatorId}`));
+  const toInsertL1 = toInsert.filter((t) => !existingSetL1.has(`${t.annotationId}:${t.annotatorId}`));
   const BATCH_SIZE = 500;
-  for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
-    const batch = toInsert.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < toInsertL1.length; i += BATCH_SIZE) {
+    const batch = toInsertL1.slice(i, i + BATCH_SIZE);
     await db.annotationResult.createMany({ data: batch });
   }
+  const distributedIdsL1 = [...new Set(toInsertL1.map((t) => t.annotationId))];
+  if (distributedIdsL1.length > 0) {
+    await db.annotation.updateMany({
+      where: { id: { in: distributedIdsL1 } },
+      data: { needDistributeL1: false },
+    });
+  }
   console.log(
-    `[Scheduler] 已发放 ${N} 条需复审条目给 ${K} 名一级复审员`
+    `[Scheduler] 已发放 ${toInsertL1.length} 条需复审条目给 ${K} 名一级复审员${toInsertL1.length < toInsert.length ? `（跳过已分配 ${toInsert.length - toInsertL1.length} 条）` : ""}`
   );
-  return N;
+  return toInsertL1.length;
+}
+
+const LEVEL_L2_REVIEW = 2;
+
+/**
+ * 将 needDistributeL2 的条目发放给二级复审员。
+ * 策略：与一级一致，每条 annotation 只发给一个人，且只发给「尚未对该条做过二级复审」的复审员；在可选复审员中按当前负载（已有+本次已分配条数）选最少者，尽量均分。仅对本次实际新下发的条目置 needDistributeL2=false。
+ * @param taskId 标注任务 ID
+ * @returns 本次新增的 (annotation, 复审员) 条数
+ */
+export async function distributeNeedToReview2ToReviewers(taskId: string): Promise<number> {
+  const reviewers = await db.annotationTaskReviewer.findMany({
+    where: { taskId, level: LEVEL_L2_REVIEW },
+    orderBy: { userId: "asc" },
+    select: { userId: true },
+  });
+  if (reviewers.length === 0) return 0;
+
+  const annotations = await db.annotation.findMany({
+    where: {
+      taskId,
+      needDistributeL2: true,
+      status: "COMPLETED",
+    },
+    orderBy: { rowIndex: "asc" },
+    select: { id: true, rowIndex: true },
+  });
+  if (annotations.length === 0) return 0;
+
+  const annotationIdsL2 = annotations.map((a) => a.id);
+  const existingL2 = await db.annotationResult.findMany({
+    where: {
+      annotationId: { in: annotationIdsL2 },
+      round: LEVEL_L2_REVIEW,
+    },
+    select: { annotationId: true, annotatorId: true },
+  });
+  const K = reviewers.length;
+  const reviewerIds = reviewers.map((r) => r.userId);
+  const reviewerIdToIndex = new Map<string, number>();
+  for (let i = 0; i < K; i++) reviewerIdToIndex.set(reviewerIds[i], i);
+  const existingByAnn = new Map<string, Set<string>>();
+  const emptyHad = new Set<string>();
+  for (const e of existingL2) {
+    if (!existingByAnn.has(e.annotationId)) existingByAnn.set(e.annotationId, new Set());
+    existingByAnn.get(e.annotationId)!.add(e.annotatorId);
+  }
+  const loads = new Array<number>(K);
+  for (let i = 0; i < K; i++) loads[i] = 0;
+  for (const e of existingL2) {
+    const idx = reviewerIdToIndex.get(e.annotatorId);
+    if (idx !== undefined) loads[idx]++;
+  }
+  const toInsertL2: { annotationId: string; annotatorId: string; round: number }[] = [];
+  toInsertL2.length = annotations.length;
+  let outIdx = 0;
+  for (const ann of annotations) {
+    const had = existingByAnn.get(ann.id) ?? emptyHad;
+    let bestIdx = -1;
+    let bestLoad = Infinity;
+    for (let i = 0; i < K; i++) {
+      if (had.has(reviewerIds[i])) continue;
+      if (loads[i] < bestLoad) {
+        bestLoad = loads[i];
+        bestIdx = i;
+      }
+    }
+    if (bestIdx === -1) continue;
+    toInsertL2[outIdx++] = {
+      annotationId: ann.id,
+      annotatorId: reviewerIds[bestIdx],
+      round: LEVEL_L2_REVIEW,
+    };
+    loads[bestIdx]++;
+  }
+  toInsertL2.length = outIdx;
+
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < toInsertL2.length; i += BATCH_SIZE) {
+    const batch = toInsertL2.slice(i, i + BATCH_SIZE);
+    await db.annotationResult.createMany({ data: batch });
+  }
+
+  const distributedIdsL2 = [...new Set(toInsertL2.map((t) => t.annotationId))];
+  if (distributedIdsL2.length > 0) {
+    await db.annotation.updateMany({
+      where: { id: { in: distributedIdsL2 } },
+      data: { needDistributeL2: false },
+    });
+  }
+
+  const skipped = annotations.length - toInsertL2.length;
+  console.log(
+    `[Scheduler] 已发放 ${toInsertL2.length} 条需二级复审条目给 ${K} 名二级复审员${skipped > 0 ? `（${skipped} 条已均有复审员未再分配）` : ""}`
+  );
+  return toInsertL2.length;
 }
 
 /**
@@ -318,177 +440,454 @@ export async function processTaskById(taskId: string) {
 
 
 
-//一条数据两个人标
-async function checkAnnotationCorrectness(annotationId: string, taskId: string): Promise<void> {
-  if (enableDebugLogs) console.log(`[Check] 开始检查标注正确性: ${annotationId}`);
-  
-  // 1. 获取该 annotation 的所有已完成的标注结果（仅 round=0 标注员结果，不含复审员）
-  const results = await db.annotationResult.findMany({
-    where: {
-      annotationId: annotationId,
-      round: 0,
-      isFinished: true,
-    },
-    include: {
-      selections: {
-        orderBy: { dimensionIndex: 'asc' }
+/** 单次正确性检查的返回：是否执行了判定 + 需延迟批量写回的能力更新（由 recheck 统一收集后批量写入，单条调用时由调用方即时写回） */
+type CheckResult = {
+  didCheck: boolean;
+  abilityUpdate: { correctUserIds: string[]; incorrectUserIds: string[]; correctDim0: string | null } | null;
+};
+
+/** 供单条调用与 recheck 共用：基于已加载的 results 与 annotation 执行判定并写库，返回 CheckResult */
+type ResultForCheck = {
+  isFinished: boolean;
+  selections: Array<{ dimensionIndex: number; pathIds: unknown; pathNames: unknown }>;
+  annotator: { id: string; name: string | null };
+};
+
+async function runCheckForAnnotation(
+  annotationId: string,
+  taskId: string,
+  results: ResultForCheck[],
+  annotation: { status: string } | null
+): Promise<CheckResult> {
+  if (results.length < 2) {
+    if (enableDebugLogs) console.log(`[Check] 标注结果不足2条，跳过检查 (当前: ${results.length})`);
+    return { didCheck: false, abilityUpdate: null };
+  }
+  if (!results.every((r) => r.isFinished)) {
+    if (enableDebugLogs) console.log(`[Check] 该条目尚有未完成的 result，暂不进行正确性判定`);
+    return { didCheck: false, abilityUpdate: null };
+  }
+  if (!annotation) return { didCheck: false, abilityUpdate: null };
+
+  if (enableDebugLogs) {
+    console.log(`[Check] annotationId=${annotationId}, status=${annotation.status}, results.length=${results.length}`);
+  }
+
+  // ——— 两人标注且尚未 COMPLETED：仅用 dim0/dim1 第一级是否一致判断 needToReview（是否发一级审核员），并标记为 COMPLETED；不做 finalResult / needToReview2 ———
+  if (results.length === 2 && annotation.status !== "COMPLETED") {
+    const resultsToUse = results.slice(0, 2);
+    type UserDimensions = {
+      userId: string;
+      userName: string;
+      dim0: string | null;
+      dim1: string | null;
+    };
+    const userDimensions: UserDimensions[] = resultsToUse.map((result) => {
+      const dim0Selection = result.selections.find((s) => s.dimensionIndex === 0);
+      const dim1Selection = result.selections.find((s) => s.dimensionIndex === 1);
+      const dim0FirstLevel =
+        dim0Selection?.pathNames != null
+          ? (JSON.parse(JSON.stringify(dim0Selection.pathNames)) as string[])[0] ?? null
+          : null;
+      const dim1FirstLevel =
+        dim1Selection?.pathNames != null
+          ? (JSON.parse(JSON.stringify(dim1Selection.pathNames)) as string[])[0] ?? null
+          : null;
+      return {
+        userId: result.annotator.id,
+        userName: result.annotator.name || "未知",
+        dim0: dim0FirstLevel,
+        dim1: dim1FirstLevel,
+      };
+    });
+    const user1 = userDimensions[0];
+    const user2 = userDimensions[1];
+    const dim0Match = user1.dim0 === user2.dim0;
+    const dim1Match = user1.dim1 === user2.dim1;
+    const allMatch = dim0Match && dim1Match;
+    const correctUserIds = allMatch ? [user1.userId, user2.userId] : [];
+    const incorrectUserIds = allMatch ? [] : [user1.userId, user2.userId];
+    const correctDim0 = allMatch ? user1.dim0 : null;
+
+    await Promise.all(
+      correctUserIds.map((userId) =>
+        db.annotationResult.updateMany({
+          where: { annotationId, annotatorId: userId, round: 0 },
+          data: { isCorrect: true },
+        })
+      )
+    );
+    await Promise.all(
+      incorrectUserIds.map((userId) =>
+        db.annotationResult.updateMany({
+          where: { annotationId, annotatorId: userId, round: 0 },
+          data: { isCorrect: false },
+        })
+      )
+    );
+    await db.annotation.update({
+      where: { id: annotationId },
+      data: {
+        status: "COMPLETED",
+        needToReview: !allMatch,
+        needToReview2: false,
+        needDistributeL1: !allMatch,
+        needDistributeL2: false,
       },
-      annotator: {
-        select: { id: true, name: true }
+    });
+    if (enableDebugLogs) {
+      console.log(`[Check] ✓ 2人标注一级检查完成，正确: ${correctUserIds.length}, 错误: ${incorrectUserIds.length}${!allMatch ? " (需要一级复审)" : ""}`);
+    }
+    return { didCheck: true, abilityUpdate: allMatch && correctDim0 ? { correctUserIds, incorrectUserIds, correctDim0 } : null };
+  }
+
+  // ——— 已做过一级判断的两人（status=COMPLETED）或三人及以上：每维度多数决，能确定则写 finalResult，否则 needToReview2 = true ———
+  // 规则：若某维度存在「一个 annotator 多条 selection」（多选层级），则按「除去最后一级路径」的前缀多数决，再将该前缀下所有 selection 的最后一级取并集作为正确答案
+  const n = results.length;
+  const dimensionIndices = Array.from(
+    new Set(results.flatMap((r) => r.selections.map((s) => s.dimensionIndex))).values()
+  ).sort((a, b) => a - b);
+
+  if (enableDebugLogs) {
+    console.log(`[Check] 进入每维度多数决: n=${n}, dimensionIndices=[${dimensionIndices.join(", ")}]`);
+  }
+
+  type WinnerSelection = { dimensionIndex: number; pathIds: string[]; pathNames: string[] | null };
+  const winnersByDimension: WinnerSelection[] = [];
+
+  for (const dimIdx of dimensionIndices) {
+    const dimSelections = results.flatMap((r) =>
+      (r.selections.filter((s) => s.dimensionIndex === dimIdx) as { pathIds: unknown; pathNames: unknown }[]).map(
+        (s) => ({ pathIds: JSON.parse(JSON.stringify(s.pathIds)) as string[], pathNames: s.pathNames != null ? (JSON.parse(JSON.stringify(s.pathNames)) as string[]) : null })
+      )
+    ).filter((s) => s.pathIds?.length > 0);
+
+    // 多选维度：若该维度下任意一条 selection 的分类路径为多级（pathIds 长度>1），则按前缀多数决；否则为单选（整条路径多数决）
+    const isMultiSelectionDimension = dimSelections.some(
+      (s) => (s.pathIds?.length ?? 0) > 1
+    );
+    if (enableDebugLogs) {
+      console.log(`[Check] 维度 ${dimIdx}: dimSelections.length=${dimSelections.length}, isMultiSelectionDimension=${isMultiSelectionDimension}（存在多级路径）`, dimSelections);
+    }
+    if (!isMultiSelectionDimension) {
+      // 单条 selection：按完整 pathIds 多数决
+      const keyToCount = new Map<string, number>();
+      const keyToSelection = new Map<string, { pathIds: string[]; pathNames: string[] | null }>();
+      for (const result of results) {
+        const sel = result.selections.find((s) => s.dimensionIndex === dimIdx);
+        if (!sel?.pathIds) continue;
+        const pathIds = JSON.parse(JSON.stringify(sel.pathIds)) as string[];
+        const pathNames = sel.pathNames != null ? (JSON.parse(JSON.stringify(sel.pathNames)) as string[]) : null;
+        const key = JSON.stringify(pathIds);
+        keyToCount.set(key, (keyToCount.get(key) ?? 0) + 1);
+        if (!keyToSelection.has(key)) keyToSelection.set(key, { pathIds, pathNames });
+      }
+      let maxCount = 0;
+      let winnerKey: string | null = null;
+      for (const [key, count] of keyToCount) {
+        if (count > maxCount) {
+          maxCount = count;
+          winnerKey = key;
+        } else if (count === maxCount && count > 0) {
+          winnerKey = null;
+        }
+      }
+      // 唯一最多即胜出（不需过半）：有唯一最高票即可
+      const hasUniqueWinner = winnerKey != null;
+      if (enableDebugLogs) {
+        console.log(`[Check] 维度 ${dimIdx} 单选: keyToCount=`, [...keyToCount.entries()], "winnerKey=", winnerKey?.slice(0, 100), "maxCount=", maxCount, "hasUniqueWinner=", hasUniqueWinner);
+      }
+      if (!hasUniqueWinner) {
+        if (enableDebugLogs) {
+          console.log(`[Check] 维度 ${dimIdx} 单选无唯一最多，中止后续维度判定`);
+        }
+        winnersByDimension.length = 0;
+        break;
+      }
+      const sel = keyToSelection.get(winnerKey!)!;
+      winnersByDimension.push({
+        dimensionIndex: dimIdx,
+        pathIds: sel.pathIds,
+        pathNames: sel.pathNames,
+      });
+    } else {
+      // 多选层级：按「除去最后一级」的前缀多数决，再将该前缀下所有 selection 的全路径去重并集作为正确答案
+      // 1) 按「人」计票：每个标注员在该维度只算一票，投给其选择的前缀；同一人选了同一前缀下的多条（多选最后一级）只计一票
+      // 2) 得票最多的前缀若为唯一最多则胜出（不需过半）；平票则无胜出
+      // 3) 胜出前缀下所有不同的「全路径」去重后作为该维度的正确答案（多条 pathIds）
+      const keyToCount = new Map<string, number>();
+      const keyToFullPaths = new Map<string, Map<string, { pathIds: string[]; pathNames: string[] | null }>>();
+      // 按人统计：每人对其选中的每个不同前缀各贡献 1 票（同一前缀下多选最后一级只算一票）
+      for (const result of results) {
+        const selectionsInDim = result.selections.filter((s) => s.dimensionIndex === dimIdx);
+        const prefixesVoted = new Set<string>();
+        for (const s of selectionsInDim) {
+          const pathIds = Array.isArray(s.pathIds) ? (JSON.parse(JSON.stringify(s.pathIds)) as string[]) : [];
+          if (pathIds.length === 0) continue;
+          const prefix = pathIds.length > 1 ? pathIds.slice(0, -1) : [];
+          const key = JSON.stringify(prefix);
+          prefixesVoted.add(key);
+        }
+        for (const key of prefixesVoted) {
+          keyToCount.set(key, (keyToCount.get(key) ?? 0) + 1);
+        }
+      }
+      // 收集每个前缀下的全路径（用于胜出后输出正确答案）
+      for (const { pathIds, pathNames } of dimSelections) {
+        const prefix = pathIds.length > 1 ? pathIds.slice(0, -1) : [];
+        const key = JSON.stringify(prefix);
+        if (!keyToFullPaths.has(key)) keyToFullPaths.set(key, new Map());
+        const pathMap = keyToFullPaths.get(key)!;
+        const pathKey = JSON.stringify(pathIds);
+        if (!pathMap.has(pathKey)) pathMap.set(pathKey, { pathIds, pathNames });
+      }
+      let maxCount = 0;
+      let winnerKey: string | null = null;
+      for (const [key, count] of keyToCount) {
+        if (count > maxCount) {
+          maxCount = count;
+          winnerKey = key;
+        } else if (count === maxCount && count > 0) {
+          winnerKey = null;
+        }
+      }
+      const totalAnnotators = results.length;
+      const hasUniqueWinner = winnerKey != null && totalAnnotators > 0;
+      if (enableDebugLogs) {
+        const prefixCounts = [...keyToCount.entries()].map(([k, v]) => [k.length > 60 ? k.slice(0, 60) + "…" : k, v]);
+        console.log(
+          `[Check] 维度 ${dimIdx} 前缀多数决(按人计票): totalAnnotators=${totalAnnotators}, keyToCount(前缀->人数)=`,
+          prefixCounts,
+          "winnerKey(前缀)=",
+          winnerKey?.slice(0, 80),
+          "maxCount=",
+          maxCount,
+          "hasUniqueWinner=",
+          hasUniqueWinner
+        );
+      }
+      if (!hasUniqueWinner) {
+        if (enableDebugLogs) {
+          console.log(`[Check] 维度 ${dimIdx} 前缀多数决无唯一最多，中止后续维度判定`);
+        }
+        winnersByDimension.length = 0;
+        break;
+      }
+      const fullPathsMap = keyToFullPaths.get(winnerKey!)!;
+      if (enableDebugLogs) {
+        const pathsAll = [...fullPathsMap.values()].map((p) => p.pathIds);
+        console.log(`[Check] 维度 ${dimIdx} 前缀多数决 胜出: 全路径条数=${fullPathsMap.size}, pathIds 全部=`, pathsAll);
+      }
+      for (const { pathIds, pathNames } of fullPathsMap.values()) {
+        winnersByDimension.push({
+          dimensionIndex: dimIdx,
+          pathIds,
+          pathNames,
+        });
       }
     }
-  });
-
-  if (results.length < 2) {
-    if (enableDebugLogs) console.log(`[Check] 标注结果不足2人，跳过检查 (当前: ${results.length})`);
-    return;
   }
-
-  // 如果结果超过2个，只取前2个（理论上不应该发生，但为了健壮性）
-  if (results.length > 2 && enableDebugLogs) {
-    console.warn(`[Check] 警告：标注结果超过2人 (当前: ${results.length})，只使用前2个结果`);
-  }
-  const resultsToUse = results.slice(0, 2);
-
-  // 2. 提取前两个维度的第一级分类
-  type UserDimensions = {
-    userId: string;
-    userName: string;
-    dim0: string | null;  // 第一个维度的第一级分类ID
-    dim1: string | null;  // 第二个维度的第一级分类ID
-  };
-
-  const userDimensions: UserDimensions[] = resultsToUse.map(result => {
-    const dim0Selection = result.selections.find(s => s.dimensionIndex === 0);
-    const dim1Selection = result.selections.find(s => s.dimensionIndex === 1);
-    
-    // 使用 pathNames 提取第一级分类名称
-    const dim0FirstLevel = dim0Selection && dim0Selection.pathNames 
-      ? (JSON.parse(JSON.stringify(dim0Selection.pathNames)) as string[])[0] 
-      : null;
-    const dim1FirstLevel = dim1Selection && dim1Selection.pathNames
-      ? (JSON.parse(JSON.stringify(dim1Selection.pathNames)) as string[])[0] 
-      : null;
-    
-    return {
-      userId: result.annotator.id,
-      userName: result.annotator.name || '未知',
-      dim0: dim0FirstLevel,
-      dim1: dim1FirstLevel,
-    };
-  });
-
   if (enableDebugLogs) {
-    console.log(`[Check] 用户标注数据:`, userDimensions.map(u => ({
-      name: u.userName,
-      dim0: u.dim0,
-      dim1: u.dim1
-    })));
+    console.log("winnersByDimension: ", winnersByDimension);
   }
-
-  // 3. 判断两个用户的标注是否相同（两个维度都必须相同）
-  // 对于2人标注：两人结果相同为正确，否则全错
-  const user1 = userDimensions[0];
-  const user2 = userDimensions[1];
   
-  const dim0Match = user1.dim0 === user2.dim0;
-  const dim1Match = user1.dim1 === user2.dim1;
-  const allMatch = dim0Match && dim1Match;
+  // 多选维度会为同一维度推入多条 winner，不能直接用 length 比较；应判断「每个维度都至少有一条 winner」
+  const allDimensionsResolved = dimensionIndices.every((dimIdx) =>
+    winnersByDimension.some((w) => w.dimensionIndex === dimIdx)
+  );
+  const finalResultJson = allDimensionsResolved
+    ? winnersByDimension.map((w) => ({
+        dimensionIndex: w.dimensionIndex,
+        pathIds: w.pathIds,
+        pathNames: w.pathNames,
+      }))
+    : null;
 
   if (enableDebugLogs) {
-    console.log(`[Check] 维度0是否一致: ${dim0Match ? '✓' : '✗'} (用户1: ${user1.dim0}, 用户2: ${user2.dim0})`);
-    console.log(`[Check] 维度1是否一致: ${dim1Match ? '✓' : '✗'} (用户1: ${user1.dim1}, 用户2: ${user2.dim1})`);
+    console.log(
+      `[Check] 多数决结果: allDimensionsResolved=${allDimensionsResolved}, winners条数=${winnersByDimension.length}, 写入=${finalResultJson != null ? "finalResult" : "needToReview2"}`
+    );
   }
 
-  // 4. 判断每个用户的标注是否正确
   const correctUserIds: string[] = [];
   const incorrectUserIds: string[] = [];
-
-  if (allMatch) {
-    // 两个维度都相同，两个人都正确
-    correctUserIds.push(user1.userId, user2.userId);
-    if (enableDebugLogs) {
-      console.log(`[Check] 用户 ${user1.userName}: ✓ 正确`);
-      console.log(`[Check] 用户 ${user2.userName}: ✓ 正确`);
+  if (allDimensionsResolved) {
+    for (const result of results) {
+      let match = true;
+      for (const dimIdx of dimensionIndices) {
+        const winnersForDim = winnersByDimension.filter((w) => w.dimensionIndex === dimIdx);
+        const resultSelectionsInDim = result.selections.filter((s) => s.dimensionIndex === dimIdx);
+        const winnerPathIdSet = new Set(winnersForDim.map((w) => JSON.stringify(w.pathIds)));
+        const resultPathIdsList = resultSelectionsInDim.map((s) =>
+          s.pathIds != null ? (JSON.parse(JSON.stringify(s.pathIds)) as string[]) : []
+        );
+        const everyResultPathInWinners =
+          resultPathIdsList.length > 0 &&
+          resultPathIdsList.every((pathIds) => winnerPathIdSet.has(JSON.stringify(pathIds)));
+        if (!everyResultPathInWinners) {
+          match = false;
+          break;
+        }
+      }
+      if (match) correctUserIds.push(result.annotator.id);
+      else incorrectUserIds.push(result.annotator.id);
     }
   } else {
-    // 有任何维度不同，两个人都错误
-    incorrectUserIds.push(user1.userId, user2.userId);
-    if (enableDebugLogs) {
-      console.log(`[Check] 用户 ${user1.userName}: ✗ 错误`);
-      console.log(`[Check] 用户 ${user2.userName}: ✗ 错误`);
-    }
+    incorrectUserIds.push(...results.map((r) => r.annotator.id));
   }
 
-  // 用于更新用户能力向量的正确答案（如果两人一致，使用任意一人的答案；否则为null）
-  const correctDim0 = allMatch ? user1.dim0 : null;
-
-  // 5. 更新每个用户的 AnnotationResult.isCorrect（仅更新 round=0 标注员结果）
-  await Promise.all(
-    correctUserIds.map(userId => 
-      db.annotationResult.updateMany({
-        where: {
-          annotationId: annotationId,
-          annotatorId: userId,
-          round: 0,
-        },
-        data: { isCorrect: true }
-      })
-    )
-  );
-
-  await Promise.all(
-    incorrectUserIds.map(userId => 
-      db.annotationResult.updateMany({
-        where: {
-          annotationId: annotationId,
-          annotatorId: userId,
-          round: 0,
-        },
-        data: { isCorrect: false }
-      })
-    )
-  );
-
-  // 6. 更新用户能力向量（仅使用维度0）：仅当两人一致、已确定正确答案时更新；两人不一致（needToReview=true）时不更新，等复审后多数决再更新
-  if (allMatch) {
-    await updateUserAbilities(taskId, correctUserIds, incorrectUserIds, correctDim0);
+  // 仅当所有维度都确定多数时才更新各 result 的 isCorrect；有维度不确定时不改 isCorrect，只设 needToReview2，等二级复审员补一条 result 后再判
+  if (allDimensionsResolved) {
+    await Promise.all(
+      correctUserIds.map((userId) =>
+        db.annotationResult.updateMany({
+          where: { annotationId, annotatorId: userId, round: 0 },
+          data: { isCorrect: true },
+        })
+      )
+    );
+    await Promise.all(
+      incorrectUserIds.map((userId) =>
+        db.annotationResult.updateMany({
+          where: { annotationId, annotatorId: userId, round: 0 },
+          data: { isCorrect: false },
+        })
+      )
+    );
   }
 
-  // 7. 标记 annotation 为已完成，如果两人不一致则需要复审
-  await db.annotation.update({
-    where: { id: annotationId },
-    data: { 
-      status: 'COMPLETED',
-      needToReview: !allMatch  // 两人不一致则需要复审
-    }
-  });
+  const firstDimWinner = winnersByDimension.find((w) => w.dimensionIndex === dimensionIndices[0]);
+  const correctDim0 =
+    allDimensionsResolved && firstDimWinner
+      ? firstDimWinner.pathNames?.[0] ?? null
+      : null;
+
+  // 不修改 needToReview，保留用于统计标注员复审率；needDistributeL1/L2 照常更新
+  if (finalResultJson != null) {
+    await db.annotation.update({
+      where: { id: annotationId },
+      data: {
+        status: "COMPLETED",
+        needToReview2: false,
+        needDistributeL2: false,
+        finalResult: finalResultJson,
+        resultConfirmed: true,
+      },
+    });
+  } else {
+    await db.annotation.update({
+      where: { id: annotationId },
+      data: {
+        status: "COMPLETED",
+        needToReview2: true,
+        needDistributeL2: true,
+        finalResult: Prisma.JsonNull,
+        resultConfirmed: false,
+      },
+    });
+  }
 
   if (enableDebugLogs) {
-    console.log(`[Check] ✓ 标注检查完成，正确: ${correctUserIds.length}, 错误: ${incorrectUserIds.length}${!allMatch ? ' (需要复审)' : ''}`);
+    console.log(
+      `[Check] ✓ ${n}人标注检查完成，少数服从多数: 正确=${correctUserIds.length}, 错误=${incorrectUserIds.length}` +
+        (allDimensionsResolved ? ", 已写 finalResult" : ", needToReview2=true")
+    );
   }
+  const abilityUpdate =
+    allDimensionsResolved && correctUserIds.length > 0 && correctDim0
+      ? { correctUserIds, incorrectUserIds, correctDim0 }
+      : null;
+  return { didCheck: true, abilityUpdate };
+}
+
+/** 单条调用：先拉取 results 与 annotation，再执行判定与写库 */
+async function checkAnnotationCorrectness(annotationId: string, taskId: string): Promise<CheckResult> {
+  if (enableDebugLogs) console.log(`[Check] 开始检查标注正确性: ${annotationId}`);
+  const results = await db.annotationResult.findMany({
+    where: { annotationId },
+    include: {
+      selections: { orderBy: { dimensionIndex: "asc" } },
+      annotator: { select: { id: true, name: true } },
+    },
+  });
+  const annotation = await db.annotation.findUnique({
+    where: { id: annotationId },
+    select: { status: true },
+  });
+  return runCheckForAnnotation(annotationId, taskId, results, annotation);
 }
 
 /**
  * 重新检查整个任务的标注正确性（供发布者手动触发）
- * 对任务中所有「已完成人数达到要求」的条目依次调用 checkAnnotationCorrectness
- * @param taskId 任务ID
+ * 仅对「最终结果未确定、人数已达标、且 needDistributeL1/needDistributeL2 均为 false」的条目调用 checkAnnotationCorrectness。
+ * needDistributeL1 或 needDistributeL2 为 true 表示已判定需复审但尚未下发，不重复检查；下发后置为 false，之后可再次被检查。
+ * needToReview/needToReview2 保留用于任务状态展示，不下发时不再改回 false。
+ * 能力更新在全部检查完成后按用户批量写入，减少 DB 往返。
  */
 export async function recheckTaskCorrectness(taskId: string): Promise<{ checked: number }> {
   const annotations = await db.annotation.findMany({
     where: { taskId },
-    select: { id: true, status: true, requiredCount: true, completedCount: true },
+    select: {
+      id: true,
+      status: true,
+      requiredCount: true,
+      completedCount: true,
+      resultConfirmed: true,
+      needDistributeL1: true,
+      needDistributeL2: true,
+    },
   });
 
-  // console.log("enableDebugLogs", enableDebugLogs);
-  // 只处理：人数已达标且尚未被标记为已完成的条目（已完成的直接跳过）
   const toCheck = annotations.filter(
-    (a) => a.status !== "COMPLETED" && a.completedCount >= a.requiredCount
+    (a) =>
+      !a.resultConfirmed &&
+      a.completedCount >= a.requiredCount &&
+      !a.needDistributeL1 &&
+      !a.needDistributeL2
   );
-  for (const ann of toCheck) {
-    await checkAnnotationCorrectness(ann.id, taskId);
+
+  if (toCheck.length === 0) return { checked: 0 };
+
+  // 批量拉取所有待检查条目的 results（含 selections、annotator），将「每条 2 次读」降为「整次 recheck 1 次读」
+  const toCheckIds = toCheck.map((a) => a.id);
+  const allResults = await db.annotationResult.findMany({
+    where: { annotationId: { in: toCheckIds } },
+    include: {
+      selections: { orderBy: { dimensionIndex: "asc" } },
+      annotator: { select: { id: true, name: true } },
+    },
+  });
+  const resultsByAnnId = new Map<string, ResultForCheck[]>();
+  for (const r of allResults) {
+    const list = resultsByAnnId.get(r.annotationId) ?? [];
+    list.push(r as ResultForCheck);
+    resultsByAnnId.set(r.annotationId, list);
   }
-  return { checked: toCheck.length };
+
+  const abilityUpdatesByUser = new Map<string, { correctDim0: string; isCorrect: boolean }[]>();
+  let checked = 0;
+  for (const ann of toCheck) {
+    const results = resultsByAnnId.get(ann.id) ?? [];
+    const result = await runCheckForAnnotation(ann.id, taskId, results, { status: ann.status });
+    if (result.didCheck) checked += 1;
+    if (result.abilityUpdate?.correctDim0) {
+      const { correctUserIds, incorrectUserIds, correctDim0 } = result.abilityUpdate;
+      for (const uid of correctUserIds) {
+        const list = abilityUpdatesByUser.get(uid) ?? [];
+        list.push({ correctDim0, isCorrect: true });
+        abilityUpdatesByUser.set(uid, list);
+      }
+      for (const uid of incorrectUserIds) {
+        const list = abilityUpdatesByUser.get(uid) ?? [];
+        list.push({ correctDim0, isCorrect: false });
+        abilityUpdatesByUser.set(uid, list);
+      }
+    }
+  }
+  if (abilityUpdatesByUser.size > 0) {
+    await applyBatchUserAbilityUpdates(taskId, abilityUpdatesByUser);
+  }
+  return { checked };
 }
 
 
@@ -696,6 +1095,57 @@ async function updateUserAbilities(
 }
 
 /**
+ * 按用户批量应用能力更新：每个用户只读一次、写一次，将多条 (correctDim0, isCorrect) 合并后一次性写入。
+ * 用于 recheck 结束后统一写回，减少 DB 往返。
+ */
+async function applyBatchUserAbilityUpdates(
+  taskId: string,
+  updatesByUser: Map<string, { correctDim0: string; isCorrect: boolean }[]>
+): Promise<void> {
+  for (const [userId, list] of updatesByUser) {
+    if (list.length === 0) continue;
+    const ability = await db.userAnnotationTaskAbility.findUnique({
+      where: { userId_taskId: { userId, taskId } },
+    });
+    if (!ability) {
+      if (enableDebugLogs) console.error(`[Ability] 用户 ${userId} 在任务 ${taskId} 中没有能力记录`);
+      continue;
+    }
+    const correctCounts = JSON.parse(JSON.stringify(ability.correctCounts)) as Record<string, number>;
+    const totalCounts = JSON.parse(JSON.stringify(ability.totalCounts)) as Record<string, number>;
+    const alphaValues = ability.alphaValues as Record<string, number>;
+    const abilityVector = JSON.parse(JSON.stringify(ability.abilityVector)) as Record<string, number>;
+    for (const { correctDim0: categoryName, isCorrect } of list) {
+      totalCounts[categoryName] = (totalCounts[categoryName] ?? 0) + 1;
+      if (isCorrect) {
+        correctCounts[categoryName] = (correctCounts[categoryName] ?? 0) + 1;
+      }
+      const alpha = alphaValues[categoryName] ?? 1;
+      const beta = 1;
+      abilityVector[categoryName] =
+        (alpha + (correctCounts[categoryName] ?? 0)) / (alpha + beta + (totalCounts[categoryName] ?? 0));
+    }
+    const scores = Object.values(abilityVector);
+    const avgScore = scores.length > 0 ? scores.reduce((sum, v) => sum + v, 0) / scores.length : 0.5;
+    const minScore = scores.length > 0 ? Math.min(...scores) : 0.5;
+    const maxScore = scores.length > 0 ? Math.max(...scores) : 0.5;
+    const totalAnnotations = Object.values(totalCounts).reduce((sum, v) => sum + v, 0);
+    await db.userAnnotationTaskAbility.update({
+      where: { userId_taskId: { userId, taskId } },
+      data: {
+        abilityVector,
+        correctCounts,
+        totalCounts,
+        avgScore,
+        minScore,
+        maxScore,
+        totalAnnotations,
+      },
+    });
+  }
+}
+
+/**
  * 更新单个用户的能力向量（Object格式）
  * @param userId 用户ID
  * @param taskId 任务ID
@@ -721,22 +1171,21 @@ async function updateSingleUserAbility(
     return;
   }
 
-  // 读取当前统计数据（Object格式）
-  const correctCounts = ability.correctCounts as Record<string, number>;
-  const totalCounts = ability.totalCounts as Record<string, number>;
+  // 深拷贝后再修改，避免直接改动 Prisma 返回对象；新分类用 0 初始化，alpha 缺省用 1
+  const correctCounts = JSON.parse(JSON.stringify(ability.correctCounts)) as Record<string, number>;
+  const totalCounts = JSON.parse(JSON.stringify(ability.totalCounts)) as Record<string, number>;
   const alphaValues = ability.alphaValues as Record<string, number>;
-  const abilityVector = ability.abilityVector as Record<string, number>;
+  const abilityVector = JSON.parse(JSON.stringify(ability.abilityVector)) as Record<string, number>;
 
-  // 更新该分类的统计数据
-  totalCounts[categoryName] += 1;
+  totalCounts[categoryName] = (totalCounts[categoryName] ?? 0) + 1;
   if (isCorrect) {
-    correctCounts[categoryName] += 1;
+    correctCounts[categoryName] = (correctCounts[categoryName] ?? 0) + 1;
   }
-  
-  // 使用贝叶斯估计重新计算能力值: (α + correct) / (α + β + total)
-  const alpha = alphaValues[categoryName];
+
+  const alpha = alphaValues[categoryName] ?? 1;
   const beta = 1;
-  abilityVector[categoryName] = (alpha + correctCounts[categoryName]) / (alpha + beta + totalCounts[categoryName]);
+  abilityVector[categoryName] =
+    (alpha + (correctCounts[categoryName] ?? 0)) / (alpha + beta + (totalCounts[categoryName] ?? 0));
 
   // 重新计算统计信息
   const scores = Object.values(abilityVector);
@@ -791,9 +1240,11 @@ async function rollbackSingleUserAbility(
     correctCounts[categoryName] -= 1;
   }
 
-  const alpha = alphaValues[categoryName];
+  const alpha = alphaValues[categoryName] ?? 1;
   const beta = 1;
-  abilityVector[categoryName] = (alpha + correctCounts[categoryName]) / (alpha + beta + totalCounts[categoryName]);
+  const correct = correctCounts[categoryName] ?? 0;
+  const total = totalCounts[categoryName] ?? 0;
+  abilityVector[categoryName] = total > 0 ? (alpha + correct) / (alpha + beta + total) : 0.5;
 
   const scores = Object.values(abilityVector);
   const avgScore = scores.length > 0 ? scores.reduce((s, v) => s + v, 0) / scores.length : 0.5;
@@ -817,7 +1268,7 @@ async function rollbackSingleUserAbility(
 
 /**
  * 撤销某用户在某天发放的标注结果（round=0）：清空完成状态与 selections，回滚 annotation.completedCount/status/needToReview，回滚用户能力。
- * 已下发复审的条目（该 annotation 已有 round=1 结果）会跳过，不参与回滚，避免状态错乱。
+ * 已下发复审的条目（该 annotation 已有 round=1 或 round=2 结果）、或最终结果已确定的条目会跳过，不参与回滚，避免状态错乱。
  * @param taskId 任务 ID
  * @param userId 用户 ID
  * @param date 日期 YYYY-MM-DD（按 AnnotationResult.createdAt 所在日筛选）
@@ -841,16 +1292,16 @@ export async function undoUserDayResults(
       createdAt: { gte: start, lt: end },
     },
     include: {
-      annotation: { select: { id: true, requiredCount: true, completedCount: true } },
+      annotation: { select: { id: true, requiredCount: true, completedCount: true, resultConfirmed: true } },
       selections: { orderBy: { dimensionIndex: "asc" } },
     },
   });
 
-  // 已下发复审的条目（存在 round=1 结果）不参与按天回滚，避免状态错乱
+  // 已下发复审的条目（存在 round=1 或 round=2 结果）、或最终结果已确定的条目不参与按天回滚，避免状态错乱
   const sentToReviewAnnotationIds = new Set(
     (
       await db.annotationResult.findMany({
-        where: { annotation: { taskId }, round: 1 },
+        where: { annotation: { taskId }, round: { in: [1, 2] } },
         select: { annotationId: true },
       })
     ).map((x) => x.annotationId)
@@ -863,6 +1314,10 @@ export async function undoUserDayResults(
 
   for (const r of results) {
     if (sentToReviewAnnotationIds.has(r.annotation.id)) {
+      skippedSentToReview += 1;
+      continue;
+    }
+    if (r.annotation.resultConfirmed) {
       skippedSentToReview += 1;
       continue;
     }
@@ -912,7 +1367,7 @@ export async function undoUserDayResults(
       data: {
         completedCount: newCompleted,
         ...(newCompleted < requiredCount
-          ? { status: "PENDING" as const, needToReview: false }
+          ? { status: "PENDING" as const, needToReview: false, needToReview2: false, needDistributeL1: false, needDistributeL2: false }
           : {}),
       },
     });
@@ -940,18 +1395,25 @@ export async function undoSingleAnnotationResult(
 ): Promise<{ undone: boolean; message?: string }> {
   const annotation = await db.annotation.findUnique({
     where: { taskId_rowIndex: { taskId, rowIndex } },
-    select: { id: true, requiredCount: true, completedCount: true },
+    select: { id: true, requiredCount: true, completedCount: true, resultConfirmed: true },
   });
   if (!annotation) throw new Error("该条目不存在");
 
-  // 标注员只能回滚「尚未下发复审」的条目，否则会出现状态错乱（回滚后再次需复审会重复下发）
+  if (annotation.resultConfirmed) {
+    return {
+      undone: false,
+      message: "该条目最终结果已确定，无法回滚。",
+    };
+  }
+
+  // 标注员只能回滚「尚未下发复审」的条目（无 round=1 且无 round=2），否则会出现状态错乱
   const hasReviewAssigned = await db.annotationResult.count({
-    where: { annotationId: annotation.id, round: 1 },
+    where: { annotationId: annotation.id, round: { in: [1, 2] } },
   });
   if (hasReviewAssigned > 0) {
     return {
       undone: false,
-      message: "该条目已下发复审，无法回滚标注。仅可回滚尚未发放给复审员的条目。",
+      message: "该条目已下发一级或二级复审，无法回滚标注。仅可回滚尚未发放给复审员的条目。",
     };
   }
 
@@ -1002,7 +1464,7 @@ export async function undoSingleAnnotationResult(
     data: {
       completedCount: newCompleted,
       ...(newCompleted < annotation.requiredCount
-        ? { status: "PENDING" as const, needToReview: false }
+        ? { status: "PENDING" as const, needToReview: false, needToReview2: false, needDistributeL1: false, needDistributeL2: false }
         : {}),
     },
   });
@@ -1019,17 +1481,22 @@ export async function undoSingleAnnotationResult(
 /**
  * 回滚某条 annotation 下某复审员的复审结果（round=1）
  * 仅清空该条 round=1 结果，不修改 annotation.completedCount（那是标注 round=0 的）
+ * 若该条目最终结果已确定（resultConfirmed），则不允许回滚复审结果。
  */
 export async function undoSingleReviewResult(
   taskId: string,
   rowIndex: number,
   annotatorId: string
-): Promise<{ undone: boolean }> {
+): Promise<{ undone: boolean; message?: string }> {
   const annotation = await db.annotation.findUnique({
     where: { taskId_rowIndex: { taskId, rowIndex } },
-    select: { id: true },
+    select: { id: true, resultConfirmed: true },
   });
   if (!annotation) throw new Error("该条目不存在");
+
+  if (annotation.resultConfirmed) {
+    return { undone: false, message: "该条目最终结果已确定，无法回滚复审结果。" };
+  }
 
   const result = await db.annotationResult.findUnique({
     where: {

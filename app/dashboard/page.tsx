@@ -116,12 +116,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           },
         },
       }),
-      // 获取接单者认领或担任一级复审员的标注任务
+      // 获取接单者认领或担任一级/二级复审员的标注任务
       db.annotationTask.findMany({
         where: {
           OR: [
             { workers: { some: { id: session.user.id } } },
-            { annotationTaskReviewers: { some: { userId: session.user.id, level: 1 } } },
+            { annotationTaskReviewers: { some: { userId: session.user.id } } },
           ],
           ...(searchValue
             ? { title: { contains: searchValue } }
@@ -132,13 +132,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         include: {
           publisher: { select: { name: true } },
           _count: { select: { annotations: true } },
+          annotationTaskReviewers: {
+            where: { userId: session.user.id },
+            select: { level: true },
+          },
         },
       })
     ])
     
-    // 为每个标注任务获取用户的标注进度（round=0）与复审进度（round=1）
+    // 为每个标注任务获取用户的标注进度（round=0）与复审进度（round=1 或 2，按担任的复审级别）
     const annotationTasksWithProgress = await Promise.all(
       workerAnnotationTasks.map(async (task) => {
+        const isL1 = task.annotationTaskReviewers?.some((r) => r.level === 1)
+        const isL2 = task.annotationTaskReviewers?.some((r) => r.level === 2)
+        const reviewRound = isL1 ? 1 : isL2 ? 2 : 1
         const [annotationFinished, annotationTotal, reviewerFinished, reviewerTotal] = await Promise.all([
           db.annotationResult.count({
             where: {
@@ -159,7 +166,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             where: {
               annotatorId: session.user.id,
               annotation: { taskId: task.id },
-              round: 1,
+              round: reviewRound,
               isFinished: true,
             },
           }),
@@ -167,7 +174,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             where: {
               annotatorId: session.user.id,
               annotation: { taskId: task.id },
-              round: 1,
+              round: reviewRound,
             },
           }),
         ])

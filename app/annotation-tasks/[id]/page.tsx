@@ -11,12 +11,15 @@ import { MessageCircle, Edit, Database, FileText, User, ChevronLeft, ChevronRigh
 import Link from "next/link";
 import { AnnotationTaskStatus } from "@prisma/client";
 import { ExportButton } from "@/components/annotation/export-button";
+import { ExportFinalButton } from "@/components/annotation/export-final-button";
 import { DeleteTaskButton } from "@/components/annotation/delete-task-button";
 import { ClaimButton } from "@/components/annotation/claim-button";
 import { StartReviewButton } from "@/components/annotation/start-review-button";
+import { StartReviewL2Button } from "@/components/annotation/start-review-l2-button";
 import { PublishButton } from "@/components/annotation/publish-button";
 import { RecheckCorrectnessButton } from "@/components/annotation/recheck-correctness-button";
 import { DistributeReviewButton } from "@/components/annotation/distribute-review-button";
+import { DistributeReviewL2Button } from "@/components/annotation/distribute-review-l2-button";
 import { TaskStatusTabs } from "@/components/annotation/task-status-tabs";
 import { UndoAnnotationForm } from "@/components/annotation/undo-annotation-form";
 import { UndoSelfAnnotationForm } from "@/components/annotation/undo-self-annotation-form";
@@ -51,9 +54,9 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
         select: { id: true, name: true },
       },
       annotationTaskReviewers: {
-        where: { level: 1 },
         select: {
           userId: true,
+          level: true,
           user: { select: { id: true, name: true } },
         },
       },
@@ -63,6 +66,10 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           status: true,
           rowIndex: true,
           needToReview: true,
+          needToReview2: true,
+          needDistributeL1: true,
+          needDistributeL2: true,
+          resultConfirmed: true,
         },
       },
       _count: {
@@ -94,9 +101,14 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
   );
 
   // 接单者是否为该任务的一级复审员
+  const reviewersL1 = task.annotationTaskReviewers.filter((r) => r.level === 1);
+  const reviewersL2 = task.annotationTaskReviewers.filter((r) => r.level === 2);
   const isReviewer =
     Array.isArray(task.annotationTaskReviewers) &&
-    task.annotationTaskReviewers.some((r) => r.userId === session.user.id);
+    task.annotationTaskReviewers.some((r) => r.userId === session.user.id && r.level === 1);
+  const isReviewerL2 =
+    Array.isArray(task.annotationTaskReviewers) &&
+    task.annotationTaskReviewers.some((r) => r.userId === session.user.id && r.level === 2);
 
   // 发布者/管理员可见：任务完成条目中的复审数、每人完成情况与复审率
   const isPublisherOrAdmin = task.publisher.id === session.user.id || session.user.role === "ADMIN";
@@ -223,7 +235,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
 
   // 发布者/管理员可见：一级复审员在本任务下的复审进度（round=1 已分配/已完成）
   let reviewerStats: { userId: string; name: string; assigned: number; finished: number }[] = [];
-  if (isPublisherOrAdmin && task.annotationTaskReviewers.length > 0) {
+  if (isPublisherOrAdmin && reviewersL1.length > 0) {
     const round1Results = await db.annotationResult.findMany({
       where: {
         annotation: { taskId: task.id },
@@ -232,7 +244,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
       select: { annotatorId: true, isFinished: true },
     });
     const reviewerMap = new Map<string, { assigned: number; finished: number }>();
-    for (const r of task.annotationTaskReviewers) {
+    for (const r of reviewersL1) {
       reviewerMap.set(r.userId, { assigned: 0, finished: 0 });
     }
     for (const r of round1Results) {
@@ -241,7 +253,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
       cur.assigned += 1;
       if (r.isFinished) cur.finished += 1;
     }
-    reviewerStats = task.annotationTaskReviewers.map((r) => {
+    reviewerStats = reviewersL1.map((r) => {
       const s = reviewerMap.get(r.userId) ?? { assigned: 0, finished: 0 };
       return {
         userId: r.userId,
@@ -250,6 +262,48 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
         finished: s.finished,
       };
     });
+  }
+
+  // 发布者/管理员可见：二级复审员在本任务下的复审进度（round=2 已分配/已完成）
+  let reviewerStatsL2: { userId: string; name: string; assigned: number; finished: number }[] = [];
+  if (isPublisherOrAdmin && reviewersL2.length > 0) {
+    const round2Results = await db.annotationResult.findMany({
+      where: {
+        annotation: { taskId: task.id },
+        round: 2,
+      },
+      select: { annotatorId: true, isFinished: true },
+    });
+    const reviewerMapL2 = new Map<string, { assigned: number; finished: number }>();
+    for (const r of reviewersL2) {
+      reviewerMapL2.set(r.userId, { assigned: 0, finished: 0 });
+    }
+    for (const r of round2Results) {
+      const cur = reviewerMapL2.get(r.annotatorId);
+      if (!cur) continue;
+      cur.assigned += 1;
+      if (r.isFinished) cur.finished += 1;
+    }
+    reviewerStatsL2 = reviewersL2.map((r) => {
+      const s = reviewerMapL2.get(r.userId) ?? { assigned: 0, finished: 0 };
+      return {
+        userId: r.userId,
+        name: r.user.name,
+        assigned: s.assigned,
+        finished: s.finished,
+      };
+    });
+  }
+
+  // 二级复审汇总：共需 = needToReview2 的条数；未发放 = needToReview2 && needDistributeL2；已发放 = 共需 - 未发放（与一级一致，用 needDistributeL2 表示未下发）
+  let reviewSummaryL2: { totalNeedReview2: number; distributedL2: number } | undefined;
+  if (isPublisherOrAdmin) {
+    const totalNeedReview2 = task.annotations.filter((a) => a.needToReview2).length;
+    const notDistributedL2 = task.annotations.filter((a) => a.needToReview2 && a.needDistributeL2).length;
+    reviewSummaryL2 = {
+      totalNeedReview2,
+      distributedL2: totalNeedReview2 - notDistributedL2,
+    };
   }
 
   // 获取当前用户的标注进度数据（仅 round=0 标注任务）
@@ -287,6 +341,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           {task.publisher.id === session.user.id && (
             <>
               <ExportButton taskId={taskId} taskTitle={task.title} />
+              <ExportFinalButton taskId={taskId} taskTitle={task.title} />
               <DeleteTaskButton taskId={taskId} />
             </>
           )}
@@ -381,7 +436,13 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">需复审/已完成/总数据:</span>
                   <span className="font-medium">
-                    {task.annotations.filter(a => a.status === "COMPLETED" && a.needToReview).length} / {task.annotations.filter(a => a.status === "COMPLETED").length} / {task._count.annotations}
+                    {task.annotations.filter(a => a.status === "COMPLETED" && a.needToReview).length} / {task.annotations.filter(a => a.status === "COMPLETED").length} / {task.annotations.length}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">已最终确认/总数据:</span>
+                  <span className="font-medium">
+                    {task.annotations.filter(a => a.resultConfirmed).length} / {task.annotations.length}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -403,20 +464,23 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             </CardContent>
           </Card>
 
-          {/* 发布者/管理员：添加一级复审员 */}
+          {/* 发布者/管理员：添加一级、二级复审员 */}
           {isPublisherOrAdmin && (
             <Card>
               <CardHeader>
                 <CardTitle>添加复审员</CardTitle>
-                {/* <CardDescription>为任务指定一级复审员，需复审的条目将分配给复审员处理</CardDescription> */}
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-6">
                 <AddReviewerForm
                   taskId={taskId}
-                  reviewers={task.annotationTaskReviewers.map((r) => ({
-                    userId: r.userId,
-                    name: r.user.name,
-                  }))}
+                  level={1}
+                  reviewers={reviewersL1.map((r) => ({ userId: r.userId, name: r.user.name }))}
+                  candidateUsers={candidateUsersForReviewer}
+                />
+                <AddReviewerForm
+                  taskId={taskId}
+                  level={2}
+                  reviewers={reviewersL2.map((r) => ({ userId: r.userId, name: r.user.name }))}
                   candidateUsers={candidateUsersForReviewer}
                 />
               </CardContent>
@@ -457,6 +521,9 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
             {session.user.role === "WORKER" && isReviewer && task.status === "IN_PROGRESS" && (
               <StartReviewButton taskId={taskId} />
             )}
+            {session.user.role === "WORKER" && isReviewerL2 && task.status === "IN_PROGRESS" && (
+              <StartReviewL2Button taskId={taskId} />
+            )}
           </div>
           
         </div>
@@ -468,14 +535,18 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           taskId={taskId}
           workerStats={taskReviewStats?.workerStats ?? []}
           reviewerStats={reviewerStats}
+          reviewerStatsL2={reviewerStatsL2}
           workers={task.workers.map((w) => ({ userId: w.id, name: w.name }))}
-          reviewSummary={{
-            totalNeedReview: task.annotations.filter((a) => a.needToReview && a.status === "COMPLETED").length,
-            distributed: reviewerStats.reduce((s, r) => s + r.assigned, 0),
-          }}
+          reviewSummary={(() => {
+            const totalNeedReview = task.annotations.filter((a) => a.needToReview && a.status === "COMPLETED").length;
+            const notDistributed = task.annotations.filter((a) => a.needToReview && a.needDistributeL1 && a.status === "COMPLETED").length;
+            return { totalNeedReview, distributed: totalNeedReview - notDistributed };
+          })()}
+          reviewSummaryL2={reviewSummaryL2}
           headerButtons={
             <>
               <DistributeReviewButton taskId={taskId} />
+              <DistributeReviewL2Button taskId={taskId} />
               <RecheckCorrectnessButton taskId={taskId} />
             </>
           }

@@ -27,14 +27,17 @@ export interface ReviewerItem {
 
 interface AddReviewerFormProps {
   taskId: string;
+  level: 1 | 2;
   reviewers: ReviewerItem[];
   candidateUsers: { id: string; name: string }[];
 }
 
 const LEVEL_L1 = 1;
+const LEVEL_L2 = 2;
 
 export function AddReviewerForm({
   taskId,
+  level,
   reviewers,
   candidateUsers,
 }: AddReviewerFormProps) {
@@ -66,7 +69,7 @@ export function AddReviewerForm({
       const res = await fetch(`/api/annotation-tasks/${taskId}/reviewers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: selectedUserId, level: LEVEL_L1 }),
+        body: JSON.stringify({ userId: selectedUserId, level }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "添加失败");
@@ -91,7 +94,7 @@ export function AddReviewerForm({
     <div className="space-y-4">
       <h4 className="text-sm font-medium flex items-center gap-2">
         <UserPlus className="h-4 w-4" />
-        一级复审员
+        {level === LEVEL_L2 ? "二级复审员" : "一级复审员"}
       </h4>
       {options.length > 0 ? (
         <div className="flex gap-2 items-end">
@@ -153,7 +156,7 @@ export function AddReviewerForm({
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
-          暂无可添加的用户（候选用户为 WORKER 角色且未在本任务中担任一级复审员）。
+          暂无可添加的用户（候选用户为 WORKER 角色且未在本任务中担任{level === LEVEL_L2 ? "二级" : "一级"}复审员）。
         </p>
       )}
     </div>

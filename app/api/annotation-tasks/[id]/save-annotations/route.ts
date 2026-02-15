@@ -59,7 +59,7 @@ export async function POST(
           continue;
         }
 
-        // 检查 annotationResult 是否存在且未完成
+        // 检查 annotationResult 是否存在且未完成（含 round 用于仅对标注 round=0 增加 completedCount）
         const annotationResult = await tx.annotationResult.findUnique({
           where: { id: annotationResultId },
           include: {
@@ -118,14 +118,16 @@ export async function POST(
           },
         });
 
-        // 如果更新成功（count=1），说明我们是第一个完成的，才 +1
+        // 如果更新成功（count=1），说明我们是第一个完成的；仅标注 round=0 时增加条目的 completedCount
         if (updateResult.count === 1) {
-          await tx.annotation.update({
-            where: { id: annotationResult.annotationId },
-            data: {
-              completedCount: { increment: 1 },
-            },
-          });
+          if (annotationResult.round === 0) {
+            await tx.annotation.update({
+              where: { id: annotationResult.annotationId },
+              data: {
+                completedCount: { increment: 1 },
+              },
+            });
+          }
           savedCount++;
         }
       }

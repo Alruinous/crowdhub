@@ -100,14 +100,14 @@ export async function POST(
     //按条目序号回滚
     if (rowIndex != null && !Number.isNaN(rowIndex)) {
       if (round === 1) {
-        const { undone } = await undoSingleReviewResult(
+        const { undone, message } = await undoSingleReviewResult(
           taskId,
           rowIndex,
           userId
         );
         return NextResponse.json({
           success: true,
-          message: "已回滚该复审员在指定条目的复审结果，可重新复审",
+          message: message ?? "已回滚该复审员在指定条目的复审结果，可重新复审",
           undone,
         });
       }

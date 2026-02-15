@@ -233,7 +233,15 @@ model Annotation {
   requiredCount Int @default(2)  // 需要几人标注
   completedCount      Int @default(0)  // 已完成数
   publishedCount      Int @default(0)  // 已发布数(可能发放下去但是有人还没完成)
-  needToReview     Boolean @default(false)  // 是否需要复审
+  needToReview     Boolean @default(false)  // 是否需要一级复审（用于展示复审率等）
+  needToReview2    Boolean @default(false)  // 是否需要二级复审（用于展示）
+  needDistributeL1 Boolean @default(false)  // 是否待发放一级复审（判定后 true，发放完 false，用于控制是否进入 recheck）
+  needDistributeL2 Boolean @default(false)  // 是否待发放二级复审（判定后 true，发放完 false，用于控制是否进入 recheck）
+
+  // 最终结果确定：结果是否已确定、确定的分类结果（与 AnnotationSelection 维度一一对应）
+  resultConfirmed  Boolean  @default(false)  // 最终结果是否已确定（已走完标注+复审并敲定）
+  // finalResult：Json 数组，按 dimensionIndex 排序，每项 { dimensionIndex, pathIds: string[], pathNames?: string[] }，与 AnnotationSelection 一致
+  finalResult      Json?
 
   // 能力需求向量（与UserTaskAbility的abilityVector对应）
   requirementVector Json?      // {"天文地理": x, "历史": y, ...}，数据对各标签的能力需求

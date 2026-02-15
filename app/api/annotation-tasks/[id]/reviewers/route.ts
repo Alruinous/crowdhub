@@ -4,10 +4,11 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 
 const LEVEL_L1 = 1;
+const LEVEL_L2 = 2;
 
 /**
- * 添加一级复审员：POST body { userId, level: 1 }
- * 移除复审员：DELETE body { userId, level: 1 }
+ * 添加复审员：POST body { userId, level: 1 | 2 }（1=一级，2=二级）
+ * 移除复审员：DELETE body { userId, level: 1 | 2 }
  * 仅任务发布者或管理员可操作。
  */
 export async function POST(
@@ -40,11 +41,12 @@ export async function POST(
 
     const body = await req.json().catch(() => ({}));
     const userId = typeof body.userId === "string" ? body.userId : undefined;
-    const level = body.level === LEVEL_L1 ? LEVEL_L1 : undefined;
+    const level =
+      body.level === LEVEL_L2 ? LEVEL_L2 : body.level === LEVEL_L1 ? LEVEL_L1 : undefined;
 
     if (!userId || level === undefined) {
       return NextResponse.json(
-        { error: "请提供 userId 和 level（一级复审员为 1）" },
+        { error: "请提供 userId 和 level（1=一级复审员，2=二级复审员）" },
         { status: 400 }
       );
     }
@@ -56,7 +58,7 @@ export async function POST(
     });
     if (existing) {
       return NextResponse.json(
-        { error: "该用户已是本任务的一级复审员" },
+        { error: level === LEVEL_L2 ? "该用户已是本任务的二级复审员" : "该用户已是本任务的一级复审员" },
         { status: 400 }
       );
     }
@@ -67,7 +69,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      message: "已添加一级复审员",
+      message: level === LEVEL_L2 ? "已添加二级复审员" : "已添加一级复审员",
     });
   } catch (error) {
     console.error("添加复审员失败:", error);
@@ -108,11 +110,12 @@ export async function DELETE(
 
     const body = await req.json().catch(() => ({}));
     const userId = typeof body.userId === "string" ? body.userId : undefined;
-    const level = body.level === LEVEL_L1 ? LEVEL_L1 : undefined;
+    const level =
+      body.level === LEVEL_L2 ? LEVEL_L2 : body.level === LEVEL_L1 ? LEVEL_L1 : undefined;
 
     if (!userId || level === undefined) {
       return NextResponse.json(
-        { error: "请提供 userId 和 level" },
+        { error: "请提供 userId 和 level（1 或 2）" },
         { status: 400 }
       );
     }

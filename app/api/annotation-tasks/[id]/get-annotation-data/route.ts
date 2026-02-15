@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth"
 
 const ROUND_ANNOTATE = 0
 const ROUND_REVIEW = 1
+const ROUND_REVIEW_L2 = 2
 
 export async function GET(
   req: Request,
@@ -20,19 +21,23 @@ export async function GET(
     const { id: taskId } = await params
     const userId = session.user.id
 
-    // round=0 标注，round=1 复审；默认 0
+    // round=0 标注，round=1 一级复审，round=2 二级复审；默认 0
     const url = new URL(req.url)
     const roundParam = url.searchParams.get("round")
-    const round = roundParam === "1" ? ROUND_REVIEW : ROUND_ANNOTATE
+    const round =
+      roundParam === "2"
+        ? ROUND_REVIEW_L2
+        : roundParam === "1"
+          ? ROUND_REVIEW
+          : ROUND_ANNOTATE
 
-    // 验证任务是否存在并获取接单者、复审员信息
+    // 验证任务是否存在并获取接单者、复审员信息（含一级、二级）
     const task = await db.annotationTask.findUnique({
       where: { id: taskId },
       include: {
         workers: { select: { id: true } },
         annotationTaskReviewers: {
-          where: { level: 1 },
-          select: { userId: true },
+          select: { userId: true, level: true },
         },
       },
     })
@@ -42,16 +47,22 @@ export async function GET(
     }
 
     const isWorker = Array.isArray(task.workers) && task.workers.some((w) => w.id === userId)
-    const isReviewer =
+    const isReviewerL1 =
       Array.isArray(task.annotationTaskReviewers) &&
-      task.annotationTaskReviewers.some((r) => r.userId === userId)
+      task.annotationTaskReviewers.some((r) => r.userId === userId && r.level === 1)
+    const isReviewerL2 =
+      Array.isArray(task.annotationTaskReviewers) &&
+      task.annotationTaskReviewers.some((r) => r.userId === userId && r.level === 2)
 
-    // 标注：必须是接单者；复审：必须是一级复审员
+    // 标注：必须是接单者；一级复审：必须是一级复审员；二级复审：必须是二级复审员
     if (round === ROUND_ANNOTATE && !isWorker) {
       return NextResponse.json({ message: "只有接单者有权限访问标注数据" }, { status: 403 })
     }
-    if (round === ROUND_REVIEW && !isReviewer) {
-      return NextResponse.json({ message: "只有复审员有权限访问复审数据" }, { status: 403 })
+    if (round === ROUND_REVIEW && !isReviewerL1) {
+      return NextResponse.json({ message: "只有一级复审员有权限访问复审数据" }, { status: 403 })
+    }
+    if (round === ROUND_REVIEW_L2 && !isReviewerL2) {
+      return NextResponse.json({ message: "只有二级复审员有权限访问二级复审数据" }, { status: 403 })
     }
 
     // 获取该用户在该任务下、该 round 的未完成结果（含 selections 供标注页使用）
@@ -82,7 +93,7 @@ export async function GET(
     const unfinished_cnt = unfinishedResults.length
     let data = unfinishedResults
 
-    // 复审模式：为每条结果附带该条目上其他标注员（round=0）的标注结果
+    // 一级复审：附带该条目上其他标注员（round=0）的标注结果
     if (round === ROUND_REVIEW && unfinishedResults.length > 0) {
       const annotationIds = unfinishedResults.map((r) => r.annotationId)
       const otherResults = await db.annotationResult.findMany({
@@ -103,6 +114,45 @@ export async function GET(
       data = unfinishedResults.map((r) => {
         const others = byAnnotationId.get(r.annotationId) ?? []
         const otherAnnotatorResults = others.map((o) => ({
+          round: 0 as number,
+          userId: o.annotatorId,
+          userName: o.annotator.name,
+          selections: o.selections.map((s) => ({
+            dimensionIndex: s.dimensionIndex,
+            pathIds: (s.pathIds as string[]) ?? [],
+            pathNames: (s.pathNames as string[] | null) ?? undefined,
+          })),
+        }))
+        return { ...r, otherAnnotatorResults }
+      })
+    }
+
+    // 二级复审：附带该条目上已有结果（round=0 标注、round=1 一级复审、其他用户 round=2 二级复审）
+    if (round === ROUND_REVIEW_L2 && unfinishedResults.length > 0) {
+      const annotationIds = unfinishedResults.map((r) => r.annotationId)
+      const otherResults = await db.annotationResult.findMany({
+        where: {
+          annotationId: { in: annotationIds },
+          OR: [
+            { round: 0 },
+            { round: 1 },
+            { round: 2, annotatorId: { not: userId } },
+          ],
+        },
+        include: {
+          selections: { orderBy: { dimensionIndex: "asc" } },
+          annotator: { select: { id: true, name: true } },
+        },
+      })
+      const byAnnotationId = new Map<string, typeof otherResults>()
+      for (const r of otherResults) {
+        if (!byAnnotationId.has(r.annotationId)) byAnnotationId.set(r.annotationId, [])
+        byAnnotationId.get(r.annotationId)!.push(r)
+      }
+      data = unfinishedResults.map((r) => {
+        const others = byAnnotationId.get(r.annotationId) ?? []
+        const otherAnnotatorResults = others.map((o) => ({
+          round: o.round,
           userId: o.annotatorId,
           userName: o.annotator.name,
           selections: o.selections.map((s) => ({
