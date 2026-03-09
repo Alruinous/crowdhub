@@ -37,6 +37,8 @@ interface OtherAnnotatorResult {
   round?: number; // 0=标注，1=一级复审，2=二级复审
   userId: string;
   userName?: string;
+  completedAt?: string | null;
+  updatedAt?: string;
   selections: { dimensionIndex: number; pathIds: string[]; pathNames?: string[] }[];
 }
 
@@ -824,10 +826,17 @@ export default function AnnotationPage({
               </CardHeader>
               <CardContent className="space-y-4">
                 {currentResult.otherAnnotatorResults.map((other, idx) => {
+                  const annotatorTime = other.completedAt ?? other.updatedAt;
                   return (
                   <div key={`${other.round ?? 0}-${other.userId}-${idx}`} className="rounded-md border bg-muted/30 p-3 space-y-2">
-                    <div className="text-sm font-medium text-muted-foreground">
-                      标注{idx + 1}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                      <span className="font-medium">标注{idx + 1}</span>
+                      <span><span className="font-medium">标注者：</span>{other.userName ?? "—"}</span>
+                      {annotatorTime && (
+                        <span><span className="font-medium">标注时间：</span>
+                          {new Date(annotatorTime).toLocaleString("zh-CN", { dateStyle: "short", timeStyle: "short" })}
+                        </span>
+                      )}
                     </div>
                     <div className="text-sm space-y-1">
                       {(() => {

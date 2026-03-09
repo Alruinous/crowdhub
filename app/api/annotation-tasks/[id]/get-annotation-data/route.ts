@@ -117,6 +117,8 @@ export async function GET(
           round: 0 as number,
           userId: o.annotatorId,
           userName: o.annotator.name,
+          completedAt: o.completedAt?.toISOString() ?? null,
+          updatedAt: o.updatedAt.toISOString(),
           selections: o.selections.map((s) => ({
             dimensionIndex: s.dimensionIndex,
             pathIds: (s.pathIds as string[]) ?? [],
@@ -155,6 +157,8 @@ export async function GET(
           round: o.round,
           userId: o.annotatorId,
           userName: o.annotator.name,
+          completedAt: o.completedAt?.toISOString() ?? null,
+          updatedAt: o.updatedAt.toISOString(),
           selections: o.selections.map((s) => ({
             dimensionIndex: s.dimensionIndex,
             pathIds: (s.pathIds as string[]) ?? [],
