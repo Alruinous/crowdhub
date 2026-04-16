@@ -138,7 +138,6 @@ export async function POST(
       
       // β 值固定为 1，不需要存储
       const beta = 1;
-      
       // 对于每个分类，初始化参数
       allCategories.forEach((category) => {
         const isExpertise = expertiseAreas && expertiseAreas.includes(category);
@@ -146,7 +145,6 @@ export async function POST(
         // 初始化统计数据
         correctCounts[category] = 0;
         totalCounts[category] = 0;
-        
         // 设置 Beta 分布的 α 参数（擅长领域=10，其他=1）
         alphaValues[category] = isExpertise ? 10 : 1;
         
