@@ -281,6 +281,10 @@ model AnnotationResult {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   completedAt DateTime?
+
+  /// 每条 annotationResult 的正确得分（实验指标用）
+  /// 数据库列名按论文口径存为 correctpoint
+  correctPoint Float?  @map("correctpoint")
   
   // 关联：一个结果有多个选择（多维度）
   selections  AnnotationSelection[]

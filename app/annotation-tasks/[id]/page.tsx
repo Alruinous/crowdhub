@@ -18,6 +18,7 @@ import { StartReviewButton } from "@/components/annotation/start-review-button";
 import { StartReviewL2Button } from "@/components/annotation/start-review-l2-button";
 import { PublishButton } from "@/components/annotation/publish-button";
 import { RecheckCorrectnessButton } from "@/components/annotation/recheck-correctness-button";
+import { ComputeCorrectnessScoreButton } from "@/components/annotation/compute-correctness-score-button";
 import { DistributeReviewButton } from "@/components/annotation/distribute-review-button";
 import { DistributeReviewL2Button } from "@/components/annotation/distribute-review-l2-button";
 import { TaskStatusTabs } from "@/components/annotation/task-status-tabs";
@@ -548,6 +549,7 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
               <DistributeReviewButton taskId={taskId} />
               <DistributeReviewL2Button taskId={taskId} />
               <RecheckCorrectnessButton taskId={taskId} />
+              <ComputeCorrectnessScoreButton taskId={taskId} />
             </>
           }
         />
