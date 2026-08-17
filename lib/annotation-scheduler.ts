@@ -1625,30 +1625,42 @@ async function sendAnnotatioinToUser(annotation: any): Promise<void> {
     return;
   }
   
-  // 计算每个可用用户的匹配度（点积）
+  // 计算每个可用用户的匹配度（余弦相似度）
   const userScores: { userId: string; userName: string; score: number }[] = [];
+
+  // 需求向量的范数在当前 annotation 下固定，预先计算一次
+  let requirementNormSq = 0;
+  for (const reqValue of Object.values(requirementVector)) {
+    requirementNormSq += reqValue * reqValue;
+  }
+  const requirementNorm = Math.sqrt(requirementNormSq);
   
   for (const ability of availableAbilities) {
     const abilityVector = ability.abilityVector as Record<string, number>;
     
-    // 计算点积（requirementVector · abilityVector）
+    // 计算余弦相似度：score = (A_i · D_k) / (||A_i|| * ||D_k||)
     let dotProduct = 0;
+    let abilityNormSq = 0;
+    for (const abilityValue of Object.values(abilityVector)) {
+      abilityNormSq += abilityValue * abilityValue;
+    }
+    const abilityNorm = Math.sqrt(abilityNormSq);
     for (const [key, reqValue] of Object.entries(requirementVector)) {
       const abilityValue = abilityVector[key] || 0;
       dotProduct += reqValue * abilityValue;
     }
-    
+    const denominator = abilityNorm * requirementNorm;
+    const cosineScore = denominator > 0 ? dotProduct / denominator : 0;
     userScores.push({
       userId: ability.user.id,
       userName: ability.user.name || '未知用户',
-      score: dotProduct
+      score: cosineScore
     });
     
   }
   
   // 按匹配度从高到低排序
   userScores.sort((a, b) => b.score - a.score);
-  
   // 从可用用户中选择前 needCount 个
   const selectedUsers = userScores.slice(0, needCount);
   

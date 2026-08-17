@@ -162,7 +162,7 @@ def generate_requirement_vectors_batch(client: OpenAI, rows_data: List[pd.Series
             model="deepseek-chat",
             messages=[
                 {"role": "system", "content": "你是一个专业且严格的科教资源评估专家。你必须仔细阅读每个资源的'科技领域'字段，这是评分的核心依据。不同的资源必须给出完全不同的评分。绝对禁止所有资源都给相同的分数。绝对禁止忽视资源的科技领域信息而给'科学家'或'其他'高分。"},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt} 
             ],
             temperature=0.8,  # 提高温度以增加差异性
             max_tokens=4000,  # 增加 token 限制
@@ -240,7 +240,7 @@ def process_excel_file(
     api_key: str = None,
     start_row: int = 0,
     max_rows: int = None,
-    batch_size: int = 10,
+    batch_size: int = 20,
     delay: float = 0.5
 ):
     """

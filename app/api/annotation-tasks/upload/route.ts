@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
-import { parseDataFile, validateFile } from "@/lib/annotation_datafile_upload"
+import { extractRequirementVectorDimensions, parseDataFile, validateFile } from "@/lib/annotation_datafile_upload"
 import { parseLabelFile, validateLabelFile } from "@/lib/annotation_labelfile_upload"
 
 export async function POST(request: NextRequest) {
@@ -20,6 +20,8 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const file = formData.get("file") as File
     const fileType = formData.get("fileType") as string
+    const labelFileId = formData.get("labelFileId") as string | null
+    // console.log("labelFileId:", labelFileId)
 
     if (!file) {
       return NextResponse.json({ error: "未选择文件" }, { status: 400 })
@@ -41,9 +43,24 @@ export async function POST(request: NextRequest) {
 
     if (fileType === "dataFile") {
       try {
+        let requirementVectorDimensions: string[] = []
+        // console.log("labelFileId:", labelFileId)
+        if (labelFileId) {
+          const labelFile = await db.labelFile.findUnique({
+            where: { id: labelFileId },
+            select: { data: true }
+          })
+
+          if (labelFile?.data) {
+            // console.log("labelFile.data:", labelFile.data)
+            requirementVectorDimensions = extractRequirementVectorDimensions(labelFile.data as any)
+          }
+        }
+        // console.log("requirementVectorDimensions:", requirementVectorDimensions)
+
         // 解析文件内容
-        const parsedData = await parseDataFile(file)
-        
+        const parsedData = await parseDataFile(file, requirementVectorDimensions)
+
         // 创建 DataFile 记录
         const dataFile = await db.dataFile.create({
           data: {
@@ -87,7 +104,8 @@ export async function POST(request: NextRequest) {
         
         // 提取维度名称数组，用于快速查询
         const dimensionNames = parsedData.dimensions.map((d: any) => d.name);
-        
+        const requirementVectorDimensions = extractRequirementVectorDimensions(parsedData as any)
+
         // 创建 LabelFile 记录
         const labelFile = await db.labelFile.create({
           data: {

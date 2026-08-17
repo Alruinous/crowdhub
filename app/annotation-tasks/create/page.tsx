@@ -77,27 +77,10 @@ export default function CreateAnnotationTaskPage() {
     setUploadError(null)
 
     try {
-      // 1. 先上传数据文件
-      const dataFormData = new FormData()
-      dataFormData.append('file', dataFile)
-      dataFormData.append('fileType', "dataFile")
-
-      const dataUploadResponse = await fetch('/api/annotation-tasks/upload', {
-        method: 'POST',
-        body: dataFormData
-      })
-
-      const dataUploadResult = await dataUploadResponse.json()
-
-      if (!dataUploadResponse.ok) {
-        throw new Error(dataUploadResult.error || '数据文件上传失败')
-      }
-
-      // 2. 上传标签文件
+      // 1. 先上传标签文件，拿到维度名称，便于数据文件补齐 requirementVector
       const labelFormData = new FormData()
       labelFormData.append('file', labelFile)
       labelFormData.append('fileType', "labelFile")
-      
 
       const labelUploadResponse = await fetch('/api/annotation-tasks/upload', {
         method: 'POST',
@@ -110,6 +93,24 @@ export default function CreateAnnotationTaskPage() {
         throw new Error(labelUploadResult.error || '标签文件上传失败')
       }
 
+      // 2. 上传数据文件，并将 labelFileId 传给后端，让后端按 label 的第一个维度一级分类生成 requirementVector
+      const dataFormData = new FormData()
+      dataFormData.append('file', dataFile)
+      dataFormData.append('fileType', "dataFile")
+      // console.log("labelUploadResult:", labelUploadResult)
+      dataFormData.append('labelFileId', labelUploadResult.labelFile.id)
+      // console.log("labelFileId111:", labelUploadResult.labelFile.id)
+
+      const dataUploadResponse = await fetch('/api/annotation-tasks/upload', {
+        method: 'POST',
+        body: dataFormData
+      })
+
+      const dataUploadResult = await dataUploadResponse.json()
+
+      if (!dataUploadResponse.ok) {
+        throw new Error(dataUploadResult.error || '数据文件上传失败')
+      }
 
       // 3. 创建标注任务并关联文件
       const taskResponse = await fetch('/api/annotation-tasks/create', {

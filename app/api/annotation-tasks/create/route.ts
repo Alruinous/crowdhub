@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
+import { buildZeroRequirementVector, extractRequirementVectorDimensions } from "@/lib/annotation_datafile_upload"
 
 export async function POST(request: NextRequest) {
   try {
@@ -131,41 +132,65 @@ export async function POST(request: NextRequest) {
 
     // 将 dataFile 中的每条数据作为独立的 Annotation 记录存入数据库
     const dataRows = (dataFile.data as any[]) || []
+    const labelData = (labelFile.data as any) || {}
+    const labelRequirementDimensions = extractRequirementVectorDimensions(labelData)
+    const zeroRequirementVector = buildZeroRequirementVector(labelRequirementDimensions)
+
     if (dataRows.length > 0) {
       console.log(`开始为任务 ${annotationTask.id} 创建 ${dataRows.length} 条数据条目...`)
-      
-      // 检查是否有 requirementVector 列
-      const columns = dataFile.columns as string[] || []
-      const hasRequirementVector = columns.length > 0 && columns[columns.length - 1] === 'requirementVector'
-      
-      // 批量创建 Annotation 记录
-      await db.annotation.createMany({
-        data: dataRows.map((row: any, index) => {
-          let rowData = row
-          let requirementVector = null
-          
-          // Excel 数据是对象形式，如果有 requirementVector 字段则分离
-          if (hasRequirementVector) {
-            const { requirementVector: vecData, ...restData } = row
-            rowData = restData
-            
-            // 如果是字符串，尝试解析为 JSON
-            try {
-              requirementVector = typeof vecData === 'string' ? JSON.parse(vecData) : vecData
-            } catch (e) {
-              console.warn(`解析 requirementVector 失败 (行 ${index}):`, e)
-            }
+
+      const columns = Array.isArray(dataFile.columns) ? dataFile.columns.map((col: any) => String(col).trim()) : []
+      const hasRequirementVector = columns.includes('requirementVector')
+
+      const normalizedRows = dataRows.map((row: any, index) => {
+        let rowData = row
+        let requirementVector: Record<string, number> | null = null
+
+        if (hasRequirementVector) {
+          const { requirementVector: vecData, ...restData } = row
+          rowData = restData
+
+          try {
+            requirementVector = typeof vecData === 'string' ? JSON.parse(vecData) : vecData
+          } catch (e) {
+            console.warn(`解析 requirementVector 失败 (行 ${index}):`, e)
           }
-          
+        }
+
+        if (!requirementVector || typeof requirementVector !== 'object' || Array.isArray(requirementVector)) {
+          requirementVector = { ...zeroRequirementVector }
+        }
+
+        return {
+          ...rowData,
+          requirementVector,
+        }
+      })
+
+      const finalColumns = hasRequirementVector
+        ? columns
+        : [...columns, 'requirementVector']
+
+      await db.dataFile.update({
+        where: { id: dataFileId },
+        data: {
+          columns: finalColumns,
+          data: normalizedRows,
+        }
+      })
+
+      await db.annotation.createMany({
+        data: normalizedRows.map((row: any, index) => {
+          const { requirementVector, ...restData } = row
           return {
             taskId: annotationTask.id,
             rowIndex: index,
-            rowData: rowData,
-            requirementVector: requirementVector,
+            rowData: restData,
+            requirementVector: requirementVector || { ...zeroRequirementVector },
           }
         })
       })
-      
+
       console.log(`任务 ${annotationTask.id} 的 ${dataRows.length} 条数据条目已创建`)
     }
 
