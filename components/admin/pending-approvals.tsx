@@ -267,7 +267,9 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
   const getTaskDetailLink = (task: UnifiedTask) => {
     return task.taskType === "annotationTask" 
       ? `/annotation-tasks/${task.id}`
-      : `/tasks/${task.id}`
+      : task.taskType === "normalTask"
+        ? `/normal-tasks/${task.id}`
+        : `/tasks/${task.id}`
   }
 
   return (

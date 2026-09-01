@@ -30,7 +30,7 @@ export function TaskTypeFilter() {
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="ALL">全部类型</SelectItem>
-        <SelectItem value="task">科普任务</SelectItem>
+        <SelectItem value="normalTask">日常任务</SelectItem>
         <SelectItem value="annotationTask">标注任务</SelectItem>
       </SelectContent>
     </Select>

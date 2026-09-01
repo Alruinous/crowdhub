@@ -40,8 +40,13 @@ export async function POST(req: NextRequest) {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
 
+    // 拼接 chat completions 端点（DeepSeek 为 OpenAI 兼容接口，baseURL 不含路径时需补 /chat/completions）
+    const chatEndpoint = baseURL.endsWith("/chat/completions")
+      ? baseURL
+      : `${baseURL.replace(/\/+$/, "")}/chat/completions`;
+
     // 转发请求到实际的AI服务
-    const aiResponse = await fetch(`${baseURL}`, {
+    const aiResponse = await fetch(chatEndpoint, {
       method: "POST",
       headers,
       body: JSON.stringify(restBody),

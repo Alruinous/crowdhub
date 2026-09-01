@@ -29,8 +29,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         select: {
           publishedTasks: true,
           publishedAnnotationTasks: true,  // 添加标注任务统计
+          publishedNormalTasks: true,      // 添加日常任务统计
           claimedTasks: true,
           claimedAnnotationTasks: true,    // 添加认领的标注任务统计
+          claimedNormalSubtasks: true,     // 添加认领的日常任务子任务统计
         },
       },
     },
@@ -53,6 +55,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         where: {
           workerId: session.user.id,
           status: "COMPLETED",
+        },
+      }) + await db.normalSubtask.count({
+        where: {
+          workerId: session.user.id,
+          status: { in: ["PENDING_REVIEW", "COMPLETED"] },
         },
       }) + await db.annotationTask.count({
         where: {
@@ -82,7 +89,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     const stats = await getTaskStats({
       publisherId: session.user.id,
       approved: undefined,
-      taskType: taskTypeValue as "ALL" | "task" | "annotationTask",
+      taskType: taskTypeValue as "ALL" | "task" | "annotationTask" | "normalTask",
       search: searchValue || undefined,
     })
     const totalPages = Math.max(1, Math.ceil(stats.total / pageLimit))
@@ -92,12 +99,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       approved: undefined,
       page: currentPage,
       limit: pageLimit,
-      taskType: taskTypeValue as "ALL" | "task" | "annotationTask",
+      taskType: taskTypeValue as "ALL" | "task" | "annotationTask" | "normalTask",
       search: searchValue || undefined,
     })
   } else if (session.user.role === "WORKER") {
     // 接单者：获取认领的普通任务、认领或担任复审员的标注任务
-    const [claimedSubtasks, workerAnnotationTasks] = await Promise.all([
+    const [claimedSubtasks, workerAnnotationTasks, claimedNormalSubtasks] = await Promise.all([
       // 获取接单者认领的普通任务子任务
       db.subtask.findMany({
         where: {
@@ -135,6 +142,24 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           annotationTaskReviewers: {
             where: { userId: session.user.id },
             select: { level: true },
+          },
+        },
+      }),
+      // 获取接单者认领的日常任务子任务
+      db.normalSubtask.findMany({
+        where: {
+          workerId: session.user.id,
+          ...(searchValue
+            ? { task: { title: { contains: searchValue } } }
+            : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        include: {
+          task: {
+            include: {
+              publisher: { select: { name: true } },
+            },
           },
         },
       })
@@ -198,6 +223,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         // 保持subtask结构，task字段包含任务信息
       })),
       // 标注任务（包含标注进度）
+      ...claimedNormalSubtasks.map(subtask => ({
+        ...subtask,
+        task: { ...subtask.task, taskType: "normalTask" as const },
+      })),
       ...annotationTasksWithProgress
     ]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())

@@ -52,7 +52,7 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
   // Get tasks pending approval with filters and pagination
   const pendingTasks = await getUnifiedTasks({
     approved: false,
-    taskType: taskTypeParam as "ALL" | "task" | "annotationTask",
+    taskType: taskTypeParam as "ALL" | "task" | "annotationTask" | "normalTask",
     publisher: publisherParam,
     search: searchParam,
     page,
@@ -62,7 +62,7 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
   // Get filtered stats for pagination
   const filteredStats = await getTaskStats({
     approved: false,
-    taskType: taskTypeParam as "ALL" | "task" | "annotationTask",
+    taskType: taskTypeParam as "ALL" | "task" | "annotationTask" | "normalTask",
     publisher: publisherParam,
     search: searchParam
   })

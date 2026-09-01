@@ -6,7 +6,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Star } from "lucide-react";
+import { Loader2, Star, HelpCircle } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
 import { UndoAnnotationForm } from "@/components/annotation/undo-annotation-form";
 
@@ -174,9 +175,19 @@ export function TaskStatusTabs({
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <h4 className="text-sm font-medium">每人任务完成情况与复审率</h4>
-              <span className="text-xs text-muted-foreground">
-                💡 为你的标注者从 1-10 打个分，每人上限 {maxScore}，真实得分 = 上限 × 打分/10（四舍五入）
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">为你的标注者从 1-10 打个分</span>
+                <TooltipProvider delayDuration={100}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="leading-relaxed">每人上限 {maxScore}，真实得分 = 上限 × 打分/10（四舍五入）</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
             </div>
             <div className="rounded-md border">
               <table className="w-full text-sm">

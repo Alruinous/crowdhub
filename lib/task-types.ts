@@ -9,13 +9,15 @@ export interface BaseTask {
   description?: string | null
   status: string
   points: number
-  maxWorkers: number
-  approved: boolean
+  /** 日常任务 NormalTask 无此字段，故设为可选 */
+  maxWorkers?: number
+  /** 日常任务 NormalTask 无审批流程，故设为可选 */
+  approved?: boolean
   createdAt: Date
   updatedAt: Date
   completedAt?: Date | null
   publisher: { id: string; name: string }
-  taskType: "task" | "annotationTask"
+  taskType: "task" | "annotationTask" | "normalTask"
 }
 
 // 统一的任务类型
@@ -28,7 +30,7 @@ export interface TaskQueryParams {
   approved?: boolean
   page?: number
   limit?: number
-  taskType?: "ALL" | "task" | "annotationTask"
+  taskType?: "ALL" | "task" | "annotationTask" | "normalTask"
   publisherId?: string
   publisher?: string // 新增：发布者名称模糊搜索
   search?: string // 新增：标题模糊搜索
@@ -39,6 +41,7 @@ export interface TaskStats {
   total: number
   taskCount: number
   annotationTaskCount: number
+  normalTaskCount: number
 }
 
 // 任务状态映射
@@ -59,5 +62,10 @@ export const TASK_TYPE_MAP = {
     label: "标注任务", 
     color: "bg-green-100 text-green-800 border-green-200",
     icon: "Database"
+  },
+  "normalTask": {
+    label: "日常任务",
+    color: "bg-amber-100 text-amber-800 border-amber-200",
+    icon: "ListTodo"
   }
 } as const

@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import Link from "next/link";
-import { Eye, FileText, Database } from "lucide-react";
+import { Eye, FileText, Database, ListTodo } from "lucide-react";
 import { TASK_TYPE_MAP } from "@/lib/task-types";
 
 interface TaskListProps {
@@ -83,6 +83,8 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
         return "bg-blue-100 text-blue-800 border-blue-200";
       case "annotationTask":
         return "bg-green-100 text-green-800 border-green-200";
+      case "normalTask":
+        return "bg-amber-100 text-amber-800 border-amber-200";
       default:
         return "bg-gray-100 text-gray-800 border-gray-200";
     }
@@ -95,13 +97,16 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
         return <FileText className="h-4 w-4" />;
       case "annotationTask":
         return <Database className="h-4 w-4" />;
+      case "normalTask":
+        return <ListTodo className="h-4 w-4" />;
       default:
         return <FileText className="h-4 w-4" />;
     }
   };
 
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div>
+      <div className="grid gap-4 md:grid-cols-3">
       {displayTasks.map((task) => {
         // Handle both task and subtask structures
         const isSubtask = "task" in task;
@@ -137,7 +142,9 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
         // 根据任务类型生成正确的链接
         const taskLink = taskType === "annotationTask" 
           ? `/annotation-tasks/${taskId}`
-          : `/tasks/${taskId}`;
+          : taskType === "normalTask"
+            ? `/normal-tasks/${taskId}`
+            : `/tasks/${taskId}`;
 
         return (
           <Card key={isSubtask ? `${taskId}-${task.id}` : taskId} className="flex flex-col">
@@ -207,6 +214,8 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
           </Card>
         );
       })}
+
+      </div>
 
       {pagination && pagination.totalPages > 1 && (
         <div className="flex justify-center gap-2 mt-4">

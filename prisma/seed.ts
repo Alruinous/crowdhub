@@ -101,7 +101,7 @@ async function main() {
       value: "deepseek-chat",
       label: "AI 模型",
     },
-    { key: "temperature", value: "1.0", label: "温度参数" },
+    { key: "temperature", value: "0.5", label: "温度参数" },
     {
       key: "systemPrompt",
       value:

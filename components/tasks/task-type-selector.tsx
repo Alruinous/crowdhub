@@ -11,7 +11,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { PlusCircle, FileText, Database } from "lucide-react"
+import { PlusCircle, FileText, Database, ListTodo } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 interface TaskTypeSelectorProps {
@@ -22,10 +22,12 @@ export function TaskTypeSelector({ children }: TaskTypeSelectorProps) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
 
-  const handleTaskTypeSelect = (type: "general" | "annotation") => {
+  const handleTaskTypeSelect = (type: "general" | "annotation" | "normal") => {
     setOpen(false)
     if (type === "general") {
       router.push("/tasks/create")
+    } else if (type === "normal") {
+      router.push("/normal-tasks/create")
     } else {
       router.push("/annotation-tasks/create")
     }
@@ -76,6 +78,21 @@ export function TaskTypeSelector({ children }: TaskTypeSelectorProps) {
             <CardContent>
               <CardDescription>
                 创建数据标注任务，需要上传数据文件和标签体系，支持批量标注
+              </CardDescription>
+            </CardContent>
+          </Card>
+
+          <Card 
+            className="cursor-pointer hover:bg-accent transition-colors"
+            onClick={() => handleTaskTypeSelect("normal")}
+          >
+            <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+              <ListTodo className="h-6 w-6 mr-2 text-amber-600" />
+              <CardTitle className="text-base">日常任务</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CardDescription>
+                创建日常任务，发布后由 AI 自动拆分多个子任务，worker 认领子任务 完成
               </CardDescription>
             </CardContent>
           </Card>

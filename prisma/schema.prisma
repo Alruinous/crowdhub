@@ -36,6 +36,10 @@ model User {
   taskAbilities            UserAnnotationTaskAbility[]   @relation("UserAbilities")
   annotationTaskReviewers  AnnotationTaskReviewer[]      @relation("AnnotationTaskReviewers")  // 作为复审员的任务
   scoredScores             AnnotationTaskScore[]         @relation("ScoredAnnotationWorkers")  // 作为标注者被发布者打分的记录
+  // 日常任务（NormalTask）
+  publishedNormalTasks    NormalTask[]       @relation("PublishedNormalTasks")   // 发布的日常任务
+  claimedNormalSubtasks   NormalSubtask[]    @relation("ClaimedNormalSubtasks")  // 认领的日常任务子任务
+  scoredNormalScores      NormalTaskScore[]  @relation("ScoredNormalWorkers")    // 作为日常任务被发布者打分的记录
   // annotationMessages      AnnotationMessage[]
 }
 
@@ -399,5 +403,82 @@ model LabelFile {
   annotationTask AnnotationTask?                             // 所属标注任务
   
   @@map("label_files")
+}
+
+// ==================== 日常任务（NormalTask）====================
+
+// 日常任务状态
+enum NormalTaskStatus {
+  OPEN          // 已创建，待发布（无子任务）
+  IN_PROGRESS   // 已发布，AI 已拆分子任务，可认领
+  COMPLETED     // 全部子任务完成
+}
+
+// 日常任务子任务状态
+enum NormalSubtaskStatus {
+  OPEN             // 可认领
+  IN_PROGRESS      // 已认领，进行中
+  PENDING_REVIEW   // 已提交，待发布者确认
+  COMPLETED        // 已完成
+}
+
+// 日常任务模型
+model NormalTask {
+  id          String           @id @default(cuid())
+  title       String                                       // 任务标题
+  description String                                       // 任务描述
+  status      NormalTaskStatus @default(OPEN)             // 任务状态
+  points      Int                                          // 总积分
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  completedAt DateTime?                                   // 完成时间
+
+  // 关联关系
+  publisher   User             @relation("PublishedNormalTasks", fields: [publisherId], references: [id], onDelete: Cascade)
+  publisherId String
+  subtasks    NormalSubtask[]                             // 由 AI 拆分的子任务
+  scores      NormalTaskScore[]                           // 发布者对工人的打分
+
+  @@map("normal_tasks")
+}
+
+// 日常任务子任务模型（每个子任务限一人认领，同一用户可认领多个子任务）
+model NormalSubtask {
+  id          String               @id @default(cuid())
+  title       String                                       // 子任务标题
+  description String                                       // 子任务描述
+  points      Int                                          // 子任务价值分数（AI 拆分时分配，所有子任务之和 = 任务总积分）
+  status      NormalSubtaskStatus  @default(OPEN)          // 子任务状态
+  submissionText String?                                   // worker 提交的文字内容（当前仅支持文字格式）
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  completedAt DateTime?                                    // 完成时间
+
+  // 关联关系
+  task        NormalTask           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String
+  worker      User?                @relation("ClaimedNormalSubtasks", fields: [workerId], references: [id])
+  workerId    String?                                      // 认领人（限一人）
+  scores      NormalTaskScore[]                            // 该子任务的打分记录
+
+  @@map("normal_subtasks")
+}
+
+// 发布者对日常任务某子任务的打分（每子任务一次，上限 = 该子任务价值分数，真实得分 = 上限 × 打分/10）
+model NormalTaskScore {
+  id         String          @id @default(cuid())
+  taskId     String
+  task       NormalTask      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  subtaskId  String          // 被评分的子任务
+  subtask    NormalSubtask   @relation(fields: [subtaskId], references: [id], onDelete: Cascade)
+  workerId   String          // 被评分的工人（该子任务的认领人）
+  worker     User            @relation("ScoredNormalWorkers", fields: [workerId], references: [id], onDelete: Cascade)
+  scoredById String          // 评分人（发布者）
+  score      Int             // 发放的真实积分
+  createdAt  DateTime        @default(now())
+
+  @@unique([taskId, subtaskId])  // 每子任务只评一次
+  @@index([taskId])
+  @@map("normal_task_scores")
 }
 

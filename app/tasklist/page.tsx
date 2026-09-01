@@ -45,7 +45,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     approved: true,
     page,
     limit,
-    taskType: taskTypeParam as "ALL" | "task" | "annotationTask",
+    taskType: taskTypeParam as "ALL" | "task" | "annotationTask" | "normalTask",
     search: searchParam
   })
 
@@ -54,7 +54,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     status: statusParam,
     categoryId: categoryParam,
     approved: true,
-    taskType: taskTypeParam as "ALL" | "task" | "annotationTask",
+    taskType: taskTypeParam as "ALL" | "task" | "annotationTask" | "normalTask",
     search: searchParam
   })
 
@@ -65,7 +65,7 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
 
   return (
     <DashboardShell>
-      <DashboardHeader heading="任务列表" text="浏览所有可用任务">
+      <DashboardHeader heading="任务广场" text="浏览所有可用任务">
         {session.user.role === "PUBLISHER" && (
           <TaskTypeSelector />
         )}
