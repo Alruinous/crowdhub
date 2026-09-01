@@ -61,6 +61,12 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           user: { select: { id: true, name: true } },
         },
       },
+      scores: {
+        select: {
+          workerId: true,
+          score: true,
+        },
+      },
       annotations: {
         select: { 
           id: true,
@@ -332,6 +338,15 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
     };
   }
 
+  // 发布者给标注者打分：合并每位认领标注者的现有真实得分，并计算单人打分上限（总积分 ÷ 当前认领人数，四舍五入）
+  const scoreMap = new Map((task.scores ?? []).map((s) => [s.workerId, s.score]));
+  const maxWorkerScore =
+    task.workers.length > 0 ? Math.round(task.points / task.workers.length) : 0;
+  const workerStatsWithScore = (taskReviewStats?.workerStats ?? []).map((ws) => ({
+    ...ws,
+    score: scoreMap.get(ws.userId) ?? null,
+  }));
+
   return (
     <DashboardShell>
       <DashboardHeader
@@ -534,10 +549,11 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
       {isPublisherOrAdmin && (
         <TaskStatusTabs
           taskId={taskId}
-          workerStats={taskReviewStats?.workerStats ?? []}
+          workerStats={workerStatsWithScore}
           reviewerStats={reviewerStats}
           reviewerStatsL2={reviewerStatsL2}
           workers={task.workers.map((w) => ({ userId: w.id, name: w.name }))}
+          maxScore={maxWorkerScore}
           reviewSummary={(() => {
             const totalNeedReview = task.annotations.filter((a) => a.needToReview && a.status === "COMPLETED").length;
             const notDistributed = task.annotations.filter((a) => a.needToReview && a.needDistributeL1 && a.status === "COMPLETED").length;

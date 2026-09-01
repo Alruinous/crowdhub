@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
       title,
       description,
       maxWorkers,
+      points,
       dataFileId,
       labelFileId,
       publishCycle = 1,    // 数据发布周期（天），默认1天
@@ -31,6 +32,14 @@ export async function POST(request: NextRequest) {
     if (!title || !dataFileId || !labelFileId) {
       return NextResponse.json(
         { error: "缺少必需字段：标题、数据文件ID、标签文件ID" },
+        { status: 400 }
+      )
+    }
+
+    // 验证任务总积分：必须由发布者主动赋值，且为正整数
+    if (typeof points !== "number" || !Number.isInteger(points) || points < 1) {
+      return NextResponse.json(
+        { error: "总积分必须是不小于1的整数" },
         { status: 400 }
       )
     }
@@ -81,15 +90,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 计算任务总积分：按数据总行数（一条一分）
-    const totalPoints = dataFile.rowCount || 0
-
-    // 创建标注任务
+    // 创建标注任务（总积分由发布者主动赋值）
     const annotationTask = await db.annotationTask.create({
       data: {
         title,
         description: description || null,
-        points: totalPoints,
+        points,
         maxWorkers: maxWorkers || 1,
         status: "OPEN",
         approved: false,

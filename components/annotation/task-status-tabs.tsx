@@ -1,7 +1,13 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Loader2, Star } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 import { UndoAnnotationForm } from "@/components/annotation/undo-annotation-form";
 
 export interface WorkerStat {
@@ -14,6 +20,8 @@ export interface WorkerStat {
   finishedNotSentToReview: number;
   /** 上述新增中需复审且尚未下发的条数 */
   needReviewNotSentToReview: number;
+  /** 发布者给的真实得分（上限 × 打分/10 四舍五入；未打分则为 null） */
+  score: number | null;
 }
 
 export interface ReviewerStat {
@@ -42,6 +50,8 @@ interface TaskStatusTabsProps {
   /** 二级复审员进度（与 reviewerStats 结构相同，round=2） */
   reviewerStatsL2?: ReviewerStat[];
   workers: { userId: string; name: string }[];
+  /** 每位标注者的打分上限（总积分 ÷ 当前认领人数，四舍五入） */
+  maxScore: number;
   /** 一级复审汇总，用于在「一级复审员进度」下显示小字 */
   reviewSummary?: ReviewSummary;
   /** 二级复审汇总，用于在「二级复审员进度」下显示小字 */
@@ -50,12 +60,97 @@ interface TaskStatusTabsProps {
   headerButtons?: React.ReactNode;
 }
 
+/** 标注员表格行内的打分单元格：每人每任务一次，积分汇入标注者账户 */
+function WorkerScoreCell({
+  taskId,
+  workerId,
+  name,
+  score,
+  maxScore,
+}: {
+  taskId: string;
+  workerId: string;
+  name: string;
+  score: number | null;
+  maxScore: number;
+}) {
+  const router = useRouter();
+  const [value, setValue] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  if (score !== null) {
+    return (
+      <span className="flex justify-end items-center gap-1 text-sm tabular-nums">
+        <Star className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
+        <span>{score}</span>
+      </span>
+    );
+  }
+
+  const handleSubmit = async () => {
+    const n = Number(value);
+    if (!value || Number.isNaN(n) || !Number.isInteger(n) || n < 1 || n > 10) {
+      toast({
+        title: "打分不合法",
+        description: `请输入 1 ~ 10 之间的整数`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/annotation-tasks/${taskId}/score-worker`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workerId, score: n }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "打分失败");
+      }
+      toast({
+        title: "打分成功",
+        description: `${name} 真实得分：${maxScore} × ${n}/10 = ${Math.round((maxScore * n) / 10)} 积分`,
+      });
+      router.refresh();
+    } catch (error) {
+      toast({
+        title: "打分失败",
+        description: error instanceof Error ? error.message : "请稍后重试",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <span className="flex items-center justify-end gap-2">
+      <Input
+        type="number"
+        min={1}
+        max={10}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="1~10"
+        className="w-20 h-8"
+        disabled={loading}
+      />
+      <Button size="sm" onClick={handleSubmit} disabled={loading}>
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "打分"}
+      </Button>
+    </span>
+  );
+}
+
 export function TaskStatusTabs({
   taskId,
   workerStats,
   reviewerStats,
   reviewerStatsL2 = [],
   workers,
+  maxScore,
   reviewSummary,
   reviewSummaryL2,
   headerButtons,
@@ -77,7 +172,12 @@ export function TaskStatusTabs({
           <TabsContent value="annotators" className="space-y-6 mt-0">
         {workerStats.length > 0 ? (
           <div>
-            <h4 className="text-sm font-medium mb-3">每人任务完成情况与复审率</h4>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h4 className="text-sm font-medium">每人任务完成情况与复审率</h4>
+              <span className="text-xs text-muted-foreground">
+                💡 为你的标注者从 1-10 打个分，每人上限 {maxScore}，真实得分 = 上限 × 打分/10（四舍五入）
+              </span>
+            </div>
             <div className="rounded-md border">
               <table className="w-full text-sm">
                 <thead>
@@ -86,6 +186,7 @@ export function TaskStatusTabs({
                     <th className="text-right p-3 font-medium">已完成 / 总需标注</th>
                     <th className="text-right p-3 font-medium">复审率（需复审/已完成）</th>
                     <th className="text-right p-3 font-medium">复审后新增：需复审/已完成</th>
+                    <th className="text-right p-3 font-medium">打分</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -137,6 +238,15 @@ export function TaskStatusTabs({
                             </span>
                           </span>
                         )}
+                      </td>
+                      <td className="p-3">
+                        <WorkerScoreCell
+                          taskId={taskId}
+                          workerId={ws.userId}
+                          name={ws.name}
+                          score={ws.score}
+                          maxScore={maxScore}
+                        />
                       </td>
                     </tr>
                   ))}

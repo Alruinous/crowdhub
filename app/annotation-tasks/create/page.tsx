@@ -20,6 +20,7 @@ export default function CreateAnnotationTaskPage() {
     title: "",
     description: "",
     maxWorkers: 1,
+    points: 1,
   })
   const [dataFile, setDataFile] = useState<File | null>(null)
   const [labelFile, setLabelFile] = useState<File | null>(null)
@@ -33,7 +34,7 @@ export default function CreateAnnotationTaskPage() {
     const { name, value } = e.target
     setFormData(prev => ({
       ...prev,
-      [name]: name === "maxWorkers" ? Number(value) : value
+      [name]: (name === "maxWorkers" || name === "points") ? Number(value) : value
     }))
   }
 
@@ -239,10 +240,26 @@ export default function CreateAnnotationTaskPage() {
                       id="maxWorkers"
                       name="maxWorkers"
                       type="number"
+                      min="1"
                       value={formData.maxWorkers}
                       onChange={handleInputChange}
                       placeholder="1"
                     />
+                  </div>
+                  <div>
+                    <Label htmlFor="points">总积分</Label>
+                    <Input
+                      id="points"
+                      name="points"
+                      type="number"
+                      min="1"
+                      value={formData.points}
+                      onChange={handleInputChange}
+                      placeholder="1"
+                    />
+                    {/* <p className="text-sm text-muted-foreground mt-1">
+                      任务完成后支付的总积分（由发布者主动赋值）
+                    </p> */}
                   </div>
                 </div>
               </div>
@@ -404,6 +421,16 @@ export default function CreateAnnotationTaskPage() {
                 <div>
                   <Label>任务描述</Label>
                   <div className="mt-1 text-sm">{formData.description}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>总积分</Label>
+                    <div className="mt-1 text-sm">{formData.points}</div>
+                  </div>
+                  <div>
+                    <Label>最大接单者数</Label>
+                    <div className="mt-1 text-sm">{formData.maxWorkers}</div>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
