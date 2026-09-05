@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { User } from "lucide-react";
 import { PublishButton } from "@/components/normal-task/publish-button";
 import { ResplitButton } from "@/components/normal-task/resplit-button";
+import { CompleteButton } from "@/components/normal-task/complete-button";
 import { DeleteButton } from "@/components/normal-task/delete-button";
 import { SubtaskActions, SubtaskStatusBadge } from "@/components/normal-task/subtask-actions";
 import { ViewSubmissionButton } from "@/components/normal-task/view-submission-button";
@@ -55,6 +56,7 @@ export default async function NormalTaskDetailPage({ params }: PageProps) {
         workerName: s.worker!.name,
         points: s.points,
         score: scored?.score ?? null,
+        status: s.status,
       };
     });
 
@@ -62,6 +64,11 @@ export default async function NormalTaskDetailPage({ params }: PageProps) {
 
   // 任务统计
   const claimedCount = task.subtasks.filter((s) => s.workerId).length;
+
+  // 所有子任务是否均已完成（用于控制“完成任务”按钮可用性）
+  const allSubtasksCompleted =
+    task.subtasks.length > 0 && task.subtasks.every((s) => s.status === "COMPLETED");
+  const remainingSubtasks = task.subtasks.filter((s) => s.status !== "COMPLETED").length;
 
   return (
     <DashboardShell>
@@ -113,18 +120,30 @@ export default async function NormalTaskDetailPage({ params }: PageProps) {
                   <ResplitButton taskId={task.id} />
                 </div>
               )}
+
+              {(isPublisher || isAdmin) && task.status === "IN_PROGRESS" && (
+                <div className="border-t pt-4">
+                  <CompleteButton
+                    taskId={task.id}
+                    allCompleted={allSubtasksCompleted}
+                    remaining={remainingSubtasks}
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
 
           {/* 子任务列表 */}
-          {(task.status === "OPEN" || task.status === "IN_PROGRESS") && (
+          {(task.status === "OPEN" || task.status === "IN_PROGRESS" || task.status === "COMPLETED") && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">子任务列表</CardTitle>
                 <CardDescription>
                   {task.status === "OPEN"
                     ? "发布前由 AI 拆解的子任务，可点击重新拆分"
-                    : "每个子任务限一人认领，认领后完成并提交"}
+                    : task.status === "IN_PROGRESS"
+                      ? "每个子任务限一人认领，认领后完成并提交"
+                      : "任务已完成，所有子任务均已交付确认"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -150,8 +169,8 @@ export default async function NormalTaskDetailPage({ params }: PageProps) {
                           )}
                         </div>
                         <div className="flex flex-col items-end gap-2 shrink-0">
-                          {(isPublisher || isAdmin) && s.submissionText && (
-                            <ViewSubmissionButton content={s.submissionText} workerName={s.worker?.name} />
+                          {(isPublisher || isAdmin) && (
+                            <ViewSubmissionButton content={s.submissionText ?? ""} workerName={s.worker?.name} />
                           )}
                           <SubtaskActions
                             taskId={task.id}
@@ -171,7 +190,7 @@ export default async function NormalTaskDetailPage({ params }: PageProps) {
           )}
 
           {/* 打分面板 */}
-          {isPublisher && task.status === "IN_PROGRESS" && (
+          {isPublisher && (task.status === "IN_PROGRESS" || task.status === "COMPLETED") && (
             <ScorePanel taskId={task.id} subtasks={scoredSubtasks} />
           )}
         </div>

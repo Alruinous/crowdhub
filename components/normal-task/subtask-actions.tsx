@@ -91,7 +91,7 @@ export function SubtaskActions({ taskId, subtaskId, status, isClaimedByMe, isWor
         </Button>
       )}
       {isWorker && isClaimedByMe && status === "IN_PROGRESS" && (
-        <Button size="sm" onClick={() => setShowSubmitDialog(true)} className="gap-1">
+        <Button size="sm" onClick={() => setShowSubmitDialog(true)} className="gap-1 bg-green-600 hover:bg-green-700 text-white">
           <CheckCircle2 className="h-4 w-4" />
           提交
         </Button>

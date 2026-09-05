@@ -76,6 +76,22 @@ export async function POST(
       );
     }
 
+    // 只有该标注者完成其被分配的全部标注条目后，发布者才能为其打分
+    const results = await db.annotationResult.findMany({
+      where: {
+        annotation: { taskId },
+        annotatorId: workerId,
+        round: 0,
+      },
+      select: { isFinished: true },
+    });
+    if (results.length === 0 || results.some((r) => !r.isFinished)) {
+      return NextResponse.json(
+        { error: "该标注者尚未完成全部标注条目，暂不能打分" },
+        { status: 400 }
+      );
+    }
+
     // 计算打分上限：四舍五入（Math.round(总积分 ÷ 当前认领人数)）
     const workerCount = task.workers.length;
     if (workerCount === 0) {

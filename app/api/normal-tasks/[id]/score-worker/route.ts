@@ -22,7 +22,7 @@ export async function POST(
     const task = await db.normalTask.findUnique({
       where: { id: taskId },
       include: {
-        subtasks: { select: { id: true, points: true, workerId: true } },
+        subtasks: { select: { id: true, points: true, workerId: true, status: true } },
         scores: { select: { subtaskId: true } },
       },
     });
@@ -44,6 +44,10 @@ export async function POST(
     }
     if (!subtask.workerId) {
       return NextResponse.json({ error: "该子任务尚未被认领，无法打分" }, { status: 400 });
+    }
+    // 只有待发布者确认（已提交）的子任务才能被打分
+    if (subtask.status !== "PENDING_REVIEW") {
+      return NextResponse.json({ error: "只有待确认（已提交）的子任务才能打分" }, { status: 400 });
     }
     // 每子任务只能打一次
     if (task.scores.some((s) => s.subtaskId === subtaskId)) {

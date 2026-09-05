@@ -50,6 +50,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           publisherId: session.user.id,
           status: "COMPLETED",
         },
+      }) + await db.normalTask.count({
+        where: {
+          publisherId: session.user.id,
+          status: "COMPLETED",
+        },
       })
     : await db.subtask.count({
         where: {

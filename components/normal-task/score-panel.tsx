@@ -18,6 +18,8 @@ export interface ScoredSubtaskRow {
   points: number;
   /** 已打真实得分；未打分则为 null */
   score: number | null;
+  /** 子任务当前状态（仅 PENDING_REVIEW 可打分） */
+  status: string;
 }
 
 /** 行内打分单元格：未打分显示输入框 + 打分按钮，已打分靠右显示真实得分 */
@@ -27,12 +29,14 @@ function SubtaskScoreCell({
   workerName,
   points,
   score,
+  status,
 }: {
   taskId: string;
   subtaskId: string;
   workerName: string;
   points: number;
   score: number | null;
+  status: string;
 }) {
   const router = useRouter();
   const [value, setValue] = useState("");
@@ -44,6 +48,13 @@ function SubtaskScoreCell({
         <Star className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
         <span>{score}</span>
       </span>
+    );
+  }
+
+  // 子任务尚未提交（非待确认状态），不能打分
+  if (status !== "PENDING_REVIEW") {
+    return (
+      <span className="flex justify-end text-xs text-muted-foreground">待提交</span>
     );
   }
 
@@ -131,7 +142,7 @@ export function ScorePanel({
             <TableRow>
               <TableHead>子任务</TableHead>
               <TableHead>认领人</TableHead>
-              <TableHead>子任务分数</TableHead>
+              <TableHead>子任务分数 </TableHead>
               <TableHead className="text-right">打分</TableHead>
             </TableRow>
           </TableHeader>
@@ -148,6 +159,7 @@ export function ScorePanel({
                     workerName={s.workerName}
                     points={s.points}
                     score={s.score}
+                    status={s.status}
                   />
                 </TableCell>
               </TableRow>

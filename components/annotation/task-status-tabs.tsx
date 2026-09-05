@@ -68,12 +68,18 @@ function WorkerScoreCell({
   name,
   score,
   maxScore,
+  finished,
+  total,
 }: {
   taskId: string;
   workerId: string;
   name: string;
   score: number | null;
   maxScore: number;
+  /** 该标注者已完成的条目数 */
+  finished: number;
+  /** 该标注者需标注的总条目数 */
+  total: number;
 }) {
   const router = useRouter();
   const [value, setValue] = useState("");
@@ -85,6 +91,13 @@ function WorkerScoreCell({
         <Star className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
         <span>{score}</span>
       </span>
+    );
+  }
+
+  // 只有标注完所有需要标注的条目后，发布者才能为其打分
+  if (!(total > 0 && finished >= total)) {
+    return (
+      <span className="flex justify-end text-xs text-muted-foreground">未完成全部标注</span>
     );
   }
 
@@ -257,6 +270,8 @@ export function TaskStatusTabs({
                           name={ws.name}
                           score={ws.score}
                           maxScore={maxScore}
+                          finished={ws.finished}
+                          total={ws.total}
                         />
                       </td>
                     </tr>

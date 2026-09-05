@@ -14,6 +14,7 @@ import { ExportButton } from "@/components/annotation/export-button";
 import { ExportFinalButton } from "@/components/annotation/export-final-button";
 import { DeleteTaskButton } from "@/components/annotation/delete-task-button";
 import { ClaimButton } from "@/components/annotation/claim-button";
+import { AnnotationCompleteButton } from "@/components/annotation/annotation-complete-button";
 import { StartReviewButton } from "@/components/annotation/start-review-button";
 import { StartReviewL2Button } from "@/components/annotation/start-review-l2-button";
 import { PublishButton } from "@/components/annotation/publish-button";
@@ -347,6 +348,14 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
     score: scoreMap.get(ws.userId) ?? null,
   }));
 
+  // 提交整个任务完成的前端门控：所有认领标注者均完成全部标注且均已打分
+  const allWorkersFinished =
+    workerStatsWithScore.length > 0 &&
+    workerStatsWithScore.every((w) => w.total > 0 && w.finished >= w.total);
+  const allWorkersScored =
+    workerStatsWithScore.length > 0 &&
+    workerStatsWithScore.every((w) => w.score !== null);
+
   return (
     <DashboardShell>
       <DashboardHeader
@@ -562,6 +571,13 @@ export default async function AnnotationTaskPage({ params }: AnnotationTaskPageP
           reviewSummaryL2={reviewSummaryL2}
           headerButtons={
             <>
+              {task.status !== "COMPLETED" && workerStatsWithScore.length > 0 && (
+                <AnnotationCompleteButton
+                  taskId={taskId}
+                  allScored={allWorkersScored}
+                  allFinished={allWorkersFinished}
+                />
+              )}
               <DistributeReviewButton taskId={taskId} />
               <DistributeReviewL2Button taskId={taskId} />
               <RecheckCorrectnessButton taskId={taskId} />

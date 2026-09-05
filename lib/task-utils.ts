@@ -17,22 +17,23 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
     taskType = "ALL", 
     publisherId = undefined,
     publisher = undefined,
-    search = undefined
+    search = undefined,
+    claimantId = undefined
   } = params
 
   const skip = (page - 1) * limit
 
   // 构建查询条件
-  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, publisher, search })
-  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, publisher, search })
-  const normalTaskWhere = buildNormalTaskWhere({ status, publisherId, publisher, search })
+  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, publisher, search, claimantId })
+  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, publisher, search, claimantId })
+  const normalTaskWhere = buildNormalTaskWhere({ status, publisherId, publisher, search, claimantId })
 
   // 并行查询两种任务
   // 当请求类型为 ALL 时，需要“跨两张表的统一分页”逻辑：
   // 不能分别 skip/take 后再合并，否则会出现两边独立分页、合并后总数不足的问题。
   // 方案：各自查询前 (page * limit) 条，合并排序后再在内存里 slice 需要的区间。
   const [tasks, annotationTasks, normalTasks] = await Promise.all([
-    taskType !== "annotationTask"
+    taskType !== "annotationTask" && taskType !== "normalTask"
       ? db.task.findMany({
           where: taskWhere,
           orderBy: { createdAt: "desc" },
@@ -46,7 +47,7 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
           },
         })
       : [],
-    taskType !== "task"
+    taskType !== "task" && taskType !== "normalTask"
       ? db.annotationTask.findMany({
           where: annotationTaskWhere,
           orderBy: { createdAt: "desc" },
@@ -102,12 +103,13 @@ export async function getTaskStats(params: Omit<TaskQueryParams, 'page' | 'limit
     taskType = "ALL", 
     search = undefined,
     publisherId = undefined,
-    publisher = undefined
+    publisher = undefined,
+    claimantId = undefined
   } = params
 
-  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, publisher, search })
-  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, publisher, search })
-  const normalTaskWhere = buildNormalTaskWhere({ status, publisherId, publisher, search })
+  const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, publisher, search, claimantId })
+  const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, publisher, search, claimantId })
+  const normalTaskWhere = buildNormalTaskWhere({ status, publisherId, publisher, search, claimantId })
 
   const [taskCount, annotationTaskCount, normalTaskCount] = await Promise.all([
     taskType !== "annotationTask" && taskType !== "normalTask" ? db.task.count({ where: taskWhere }) : 0,
@@ -133,13 +135,18 @@ function buildTaskWhere(params: {
   publisherId?: string
   publisher?: string
   search?: string
+  claimantId?: string
 }) {
-  const { status, categoryId, approved, publisherId, publisher, search } = params
+  const { status, categoryId, approved, publisherId, publisher, search, claimantId } = params
   const base: any = {
     status: status !== "ALL" ? (status as TaskStatus) : undefined,
     categoryId: categoryId !== "ALL" ? categoryId : undefined,
     approved: approved !== undefined ? approved : undefined,
     publisherId: publisherId !== undefined ? publisherId : undefined,
+  }
+  // 任务广场（无发布者过滤）时，排除当前用户已认领子任务的科普任务
+  if (publisherId === undefined && claimantId) {
+    base.subtasks = { none: { workerId: claimantId } }
   }
   if (search && search.trim()) {
     base.title = { contains: search.trim() }
@@ -162,12 +169,17 @@ function buildAnnotationTaskWhere(params: {
   publisherId?: string
   publisher?: string
   search?: string
+  claimantId?: string
 }) {
-  const { status, approved, publisherId, publisher, search } = params
+  const { status, approved, publisherId, publisher, search, claimantId } = params
   const base: any = {
     status: status !== "ALL" ? (status as AnnotationTaskStatus) : undefined,
     approved: approved !== undefined ? approved : undefined,
     publisherId: publisherId !== undefined ? publisherId : undefined,
+  }
+  // 任务广场（无发布者过滤）时，排除当前用户已认领的标注任务
+  if (publisherId === undefined && claimantId) {
+    base.workers = { none: { id: claimantId } }
   }
   if (search && search.trim()) {
     base.title = { contains: search.trim() }
@@ -190,8 +202,9 @@ function buildNormalTaskWhere(params: {
   publisherId?: string
   publisher?: string
   search?: string
+  claimantId?: string
 }) {
-  const { status, publisherId, publisher, search } = params
+  const { status, publisherId, publisher, search, claimantId } = params
   const base: any = {
     status:
       status === "ALL"
@@ -199,10 +212,14 @@ function buildNormalTaskWhere(params: {
         : (status === "OPEN" ? "IN_PROGRESS" as NormalTaskStatus : status),
     publisherId: publisherId !== undefined ? publisherId : undefined,
   }
-  // 任务广场（未指定发布者）时，仅展示仍开放认领（存在可认领子任务）的日常任务；
+  // 任务广场（未指定发布者）时，仅展示仍开放认领（存在可认领子任务）的日常任务，
+  // 并排除当前用户已认领过子任务的日常任务；
   // 发布者仪表盘（指定 publisherId）需要展示自己发布的所有日常任务，因此不过滤。
   if (publisherId === undefined) {
     base.subtasks = { some: { status: "OPEN" } }
+    if (claimantId) {
+      base.AND = [{ subtasks: { none: { workerId: claimantId } } }]
+    }
   }
   if (search && search.trim()) {
     base.title = { contains: search.trim() }

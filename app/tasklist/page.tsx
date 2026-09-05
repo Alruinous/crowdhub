@@ -46,7 +46,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     page,
     limit,
     taskType: taskTypeParam as "ALL" | "task" | "annotationTask" | "normalTask",
-    search: searchParam
+    search: searchParam,
+    claimantId: session.user.id,
   })
 
   // 使用统一的任务工具函数获取统计信息
@@ -55,7 +56,8 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
     categoryId: categoryParam,
     approved: true,
     taskType: taskTypeParam as "ALL" | "task" | "annotationTask" | "normalTask",
-    search: searchParam
+    search: searchParam,
+    claimantId: session.user.id,
   })
 
   const totalPages: number = Math.ceil(stats.total / limit)

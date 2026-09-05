@@ -7,6 +7,8 @@ import { db } from "@/lib/db"
 import { AdminStats } from "@/components/admin/admin-stats"
 import { PendingApprovals } from "@/components/admin/pending-approvals"
 import { getUnifiedTasks, getTaskStats } from "@/lib/task-utils"
+import { getAnnotationApprovalRequired } from "@/lib/settings"
+import { AnnotationApprovalToggle } from "@/components/admin/annotation-approval-toggle"
 
 interface AdminDashboardPageProps {
   searchParams: Promise<{
@@ -49,6 +51,9 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
     completedTasks: completedTasksStats.total, // 已完成任务总数
   }
 
+  // 标注任务审核开关（是否需要审核才能进入任务广场）
+  const requiresAnnotationApproval = await getAnnotationApprovalRequired()
+
   // Get tasks pending approval with filters and pagination
   const pendingTasks = await getUnifiedTasks({
     approved: false,
@@ -74,6 +79,10 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
       <DashboardHeader heading="管理员仪表盘" text="系统概览和待处理事项" />
 
       <AdminStats stats={stats} />
+
+      <div className="mt-6">
+        <AnnotationApprovalToggle requiresApproval={requiresAnnotationApproval} />
+      </div>
 
       <div className="mt-8">
         <h2 className="text-xl font-semibold mb-4">待审批任务</h2>

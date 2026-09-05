@@ -34,6 +34,8 @@ export interface TaskQueryParams {
   publisherId?: string
   publisher?: string // 新增：发布者名称模糊搜索
   search?: string // 新增：标题模糊搜索
+  /** 任务广场：排除该用户已认领的任务 */
+  claimantId?: string
 }
 
 // 任务统计信息

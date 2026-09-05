@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { buildZeroRequirementVector, extractRequirementVectorDimensions } from "@/lib/annotation_datafile_upload"
+import { getAnnotationApprovalRequired } from "@/lib/settings"
 
 export async function POST(request: NextRequest) {
   try {
@@ -90,6 +91,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 读取管理员设置的审核开关：是否需要审核后才能进入任务广场
+    const requiresApproval = await getAnnotationApprovalRequired()
+
     // 创建标注任务（总积分由发布者主动赋值）
     const annotationTask = await db.annotationTask.create({
       data: {
@@ -98,7 +102,7 @@ export async function POST(request: NextRequest) {
         points,
         maxWorkers: maxWorkers || 1,
         status: "OPEN",
-        approved: false,
+        approved: requiresApproval ? false : true,
         publishCycle: publishCycle || 1,
         publishLimit: publishLimit || 100,
         publisherId: session.user.id,
