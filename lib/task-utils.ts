@@ -212,10 +212,11 @@ function buildNormalTaskWhere(params: {
         : (status === "OPEN" ? "IN_PROGRESS" as NormalTaskStatus : status),
     publisherId: publisherId !== undefined ? publisherId : undefined,
   }
-  // 任务广场（未指定发布者）时，仅展示仍开放认领（存在可认领子任务）的日常任务，
-  // 并排除当前用户已认领过子任务的日常任务；
+  // 任务广场筛选“招募中”时，仅展示仍开放认领（存在可认领子任务）的日常任务，
+  // 并排除当前用户已认领过子任务的日常任务。查询其他状态或全部状态时，
+  // 不能附加开放子任务条件，否则 COMPLETED 永远匹配不到；
   // 发布者仪表盘（指定 publisherId）需要展示自己发布的所有日常任务，因此不过滤。
-  if (publisherId === undefined) {
+  if (publisherId === undefined && status === "OPEN") {
     base.subtasks = { some: { status: "OPEN" } }
     if (claimantId) {
       base.AND = [{ subtasks: { none: { workerId: claimantId } } }]

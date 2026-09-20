@@ -14,6 +14,9 @@ import {
   Cpu,
 } from "lucide-react";
 
+// 暂时隐藏旧的任务配置入口；需要恢复时改为 true 即可。
+const SHOW_TASK_MANAGEMENT_ROUTES = false;
+
 export function AdminNav() {
   const pathname = usePathname();
 
@@ -30,24 +33,28 @@ export function AdminNav() {
       icon: Users,
       active: pathname === "/admin/users",
     },
-    {
-      href: "/admin/tasks",
-      label: "任务管理",
-      icon: FileText,
-      active: pathname === "/admin/tasks",
-    },
-    {
-      href: "/admin/categories",
-      label: "分类管理",
-      icon: Tag,
-      active: pathname === "/admin/categories",
-    },
-    {
-      href: "/admin/task-types",
-      label: "任务类型管理",
-      icon: Layers,
-      active: pathname === "/admin/task-types",
-    },
+    ...(SHOW_TASK_MANAGEMENT_ROUTES
+      ? [
+          {
+            href: "/admin/tasks",
+            label: "任务管理",
+            icon: FileText,
+            active: pathname === "/admin/tasks",
+          },
+          {
+            href: "/admin/categories",
+            label: "分类管理",
+            icon: Tag,
+            active: pathname === "/admin/categories",
+          },
+          {
+            href: "/admin/task-types",
+            label: "任务类型管理",
+            icon: Layers,
+            active: pathname === "/admin/task-types",
+          },
+        ]
+      : []),
     {
       href: "/admin/ai-configs",
       label: "AI 配置",

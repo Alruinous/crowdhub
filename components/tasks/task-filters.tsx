@@ -21,7 +21,7 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
   const ENABLE_CATEGORY_FILTER = false
 
   // Get current filter values
-  const status = searchParams.get("status") || "ALL"
+  const taskType = searchParams.get("taskType") || "ALL"
   const category = ENABLE_CATEGORY_FILTER ? (searchParams.get("category") || "ALL") : "ALL"
   const search = searchParams.get("search") || ""
 
@@ -30,6 +30,7 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
     (name: string, value: string) => {
       const params = new URLSearchParams(searchParams.toString())
       params.set("page", "1") // 任何筛选变化重置到第一页
+      params.delete("status") // 状态筛选已移除，清理旧链接中遗留的参数
 
       if (value) {
         params.set(name, value)
@@ -46,9 +47,9 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
     [searchParams],
   )
 
-  // Handle status change
-  const handleStatusChange = (value: string) => {
-    router.push(`?${createQueryString("status", value)}`)
+  // Handle task type change
+  const handleTaskTypeChange = (value: string) => {
+    router.push(`?${createQueryString("taskType", value)}`)
   }
 
   // Handle category change
@@ -80,18 +81,17 @@ export function TaskFilters({ categories }: TaskFiltersProps) {
 
   return (
     <div className="bg-muted/40 p-4 rounded-lg mb-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="text-sm font-medium mb-1 block">状态</label>
-          <Select value={status} onValueChange={handleStatusChange}>
+          <label className="text-sm font-medium mb-1 block">任务类型</label>
+          <Select value={taskType} onValueChange={handleTaskTypeChange}>
             <SelectTrigger>
-              <SelectValue placeholder="所有状态" />
+              <SelectValue placeholder="所有类型" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">所有状态</SelectItem>
-              <SelectItem value="OPEN">招募中</SelectItem>
-              <SelectItem value="IN_PROGRESS">进行中</SelectItem>
-              <SelectItem value="COMPLETED">已完成</SelectItem>
+              <SelectItem value="ALL">所有类型</SelectItem>
+              <SelectItem value="annotationTask">标注任务</SelectItem>
+              <SelectItem value="normalTask">日常任务</SelectItem>
             </SelectContent>
           </Select>
         </div>

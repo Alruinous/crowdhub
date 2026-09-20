@@ -12,7 +12,6 @@ import { db } from "@/lib/db"
 
 interface TasksPageProps {
   searchParams: Promise<{
-    status?: string
     category?: string
     page?: string
     taskType?: string
@@ -30,10 +29,13 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
   // Await searchParams before using them
   const resolvedSearchParams = await searchParams
 
-  // 只展示 OPEN 状态的任务
-  const statusParam: string = "OPEN"
+  // 任务广场只展示仍可认领的任务，状态不再作为用户筛选项。
+  const statusParam = "OPEN"
   const categoryParam: string = resolvedSearchParams.category || "ALL"
-  const taskTypeParam: string = resolvedSearchParams.taskType || "ALL"
+  const requestedTaskType = resolvedSearchParams.taskType || "ALL"
+  const taskTypeParam = ["ALL", "annotationTask", "normalTask"].includes(requestedTaskType)
+    ? requestedTaskType
+    : "ALL"
   const searchParam: string = resolvedSearchParams.search || ""
   const page: number = Number.parseInt(resolvedSearchParams.page || "1")
   const limit: number = 6
@@ -88,7 +90,6 @@ export default async function TasksPage({ searchParams }: TasksPageProps) {
             totalPages,
           }}
           query={{
-            ...(statusParam ? { status: statusParam } : {}),
             ...(categoryParam ? { category: categoryParam } : {}),
             ...(taskTypeParam ? { taskType: taskTypeParam } : {}),
             ...(searchParam ? { search: searchParam } : {}),
