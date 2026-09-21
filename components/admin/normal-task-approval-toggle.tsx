@@ -7,8 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ShieldCheck, ShieldOff, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-/** 管理员控制“发布者创建的标注任务是否需要审核后才能进入任务广场” */
-export function AnnotationApprovalToggle({ requiresApproval }: { requiresApproval: boolean }) {
+/** 管理员控制“发布者发布的日常任务是否需要审核后才能进入任务广场” */
+export function NormalTaskApprovalToggle({ requiresApproval }: { requiresApproval: boolean }) {
   const router = useRouter();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -18,23 +18,26 @@ export function AnnotationApprovalToggle({ requiresApproval }: { requiresApprova
     setCurrentValue(requiresApproval);
   }, [requiresApproval]);
 
-  const setValue = async (val: boolean) => {
+  const setValue = async (value: boolean) => {
     setLoading(true);
     try {
-      const response = await fetch("/api/admin/settings/annotation-approval", {
+      const response = await fetch("/api/admin/settings/normal-task-approval", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requiresApproval: val }),
+        body: JSON.stringify({ requiresApproval: value }),
       });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || "保存失败");
       }
+
+      setCurrentValue(value);
       toast({
         title: "设置已保存",
-        description: val ? "后续创建的标注任务需审核" : "后续创建的标注任务将直接发布，无需审核",
+        description: value
+          ? "后续发布的日常任务需管理员审核"
+          : "后续发布的日常任务将直接进入任务广场",
       });
-      setCurrentValue(val);
       router.refresh();
     } catch (error) {
       toast({
@@ -50,9 +53,9 @@ export function AnnotationApprovalToggle({ requiresApproval }: { requiresApprova
   return (
     <Card>
       <CardHeader>
-        <CardTitle>标注任务发布审核</CardTitle>
+        <CardTitle>日常任务发布审核</CardTitle>
         <CardDescription>
-          控制发布者创建的数据标注任务，是否需要管理员审核后才能进入任务广场被 worker 认领。
+          控制发布者发布的日常任务，是否需要管理员审核后才能进入任务广场被 worker 认领。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -82,7 +85,7 @@ export function AnnotationApprovalToggle({ requiresApproval }: { requiresApprova
           {currentValue
             ? "需要管理员审核后才能进入任务广场"
             : "发布后直接进入任务广场供 worker 认领（无需审核）"}
-          。该设置对之后新创建的标注任务生效。
+          。该设置对之后发布的日常任务生效。
         </p>
       </CardContent>
     </Card>

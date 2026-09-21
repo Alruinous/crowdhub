@@ -26,7 +26,7 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
   // 构建查询条件
   const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, publisher, search, claimantId })
   const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, publisher, search, claimantId })
-  const normalTaskWhere = buildNormalTaskWhere({ status, publisherId, publisher, search, claimantId })
+  const normalTaskWhere = buildNormalTaskWhere({ status, approved, publisherId, publisher, search, claimantId })
 
   // 并行查询两种任务
   // 当请求类型为 ALL 时，需要“跨两张表的统一分页”逻辑：
@@ -59,7 +59,7 @@ export async function getUnifiedTasks(params: TaskQueryParams = {}): Promise<Uni
           },
         })
       : [],
-    taskType !== "task" && taskType !== "annotationTask" && approved !== false
+    taskType !== "task" && taskType !== "annotationTask"
       ? db.normalTask.findMany({
           where: normalTaskWhere,
           orderBy: { createdAt: "desc" },
@@ -109,12 +109,12 @@ export async function getTaskStats(params: Omit<TaskQueryParams, 'page' | 'limit
 
   const taskWhere = buildTaskWhere({ status, categoryId, approved, publisherId, publisher, search, claimantId })
   const annotationTaskWhere = buildAnnotationTaskWhere({ status, categoryId, approved, publisherId, publisher, search, claimantId })
-  const normalTaskWhere = buildNormalTaskWhere({ status, publisherId, publisher, search, claimantId })
+  const normalTaskWhere = buildNormalTaskWhere({ status, approved, publisherId, publisher, search, claimantId })
 
   const [taskCount, annotationTaskCount, normalTaskCount] = await Promise.all([
     taskType !== "annotationTask" && taskType !== "normalTask" ? db.task.count({ where: taskWhere }) : 0,
     taskType !== "task" && taskType !== "normalTask" ? db.annotationTask.count({ where: annotationTaskWhere }) : 0,
-    taskType !== "task" && taskType !== "annotationTask" && approved !== false ? db.normalTask.count({ where: normalTaskWhere }) : 0
+    taskType !== "task" && taskType !== "annotationTask" ? db.normalTask.count({ where: normalTaskWhere }) : 0
   ])
 
   return {
@@ -199,17 +199,19 @@ function buildAnnotationTaskWhere(params: {
  */
 function buildNormalTaskWhere(params: {
   status: string
+  approved?: boolean
   publisherId?: string
   publisher?: string
   search?: string
   claimantId?: string
 }) {
-  const { status, publisherId, publisher, search, claimantId } = params
+  const { status, approved, publisherId, publisher, search, claimantId } = params
   const base: any = {
     status:
       status === "ALL"
-        ? undefined
+        ? (approved === false ? "IN_PROGRESS" as NormalTaskStatus : undefined)
         : (status === "OPEN" ? "IN_PROGRESS" as NormalTaskStatus : status),
+    approved: approved !== undefined ? approved : undefined,
     publisherId: publisherId !== undefined ? publisherId : undefined,
   }
   // 任务广场筛选“招募中”时，仅展示仍开放认领（存在可认领子任务）的日常任务，

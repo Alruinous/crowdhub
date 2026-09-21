@@ -117,6 +117,7 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
         const taskCategory = taskData.category?.name || "未分类";
         const taskDate = new Date(taskData.createdAt || Date.now());
         const taskType = taskData.taskType || "task"; // 默认为task
+        const awaitingApproval = taskType === "normalTask" && taskStatus === "IN_PROGRESS" && taskData.approved === false;
 
         // 聚合状态徽标逻辑
         let aggregatedStatusText: string | null = null;
@@ -162,7 +163,9 @@ export function TaskList({ tasks, userRole, pagination, query, showSubmitButton 
                     </span>
                   </Badge>
                   {/* 发布者显示任务状态；接单者显示聚合状态 */}
-                  {userRole === "WORKER" && aggregatedStatusText ? (
+                  {awaitingApproval ? (
+                    <Badge className="bg-orange-500">待审核</Badge>
+                  ) : userRole === "WORKER" && aggregatedStatusText ? (
                     <Badge className={aggregatedStatusColor}>{aggregatedStatusText}</Badge>
                   ) : (
                     <Badge className={getStatusColor(taskStatus)}>

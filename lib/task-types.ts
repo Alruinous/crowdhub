@@ -11,7 +11,7 @@ export interface BaseTask {
   points: number
   /** 日常任务 NormalTask 无此字段，故设为可选 */
   maxWorkers?: number
-  /** 日常任务 NormalTask 无审批流程，故设为可选 */
+  /** 三类任务均可能包含审批状态 */
   approved?: boolean
   createdAt: Date
   updatedAt: Date

@@ -428,6 +428,7 @@ model NormalTask {
   title       String                                       // 任务标题
   description String                                       // 任务描述
   status      NormalTaskStatus @default(OPEN)             // 任务状态
+  approved    Boolean          @default(false)            // 是否已通过管理员审批
   points      Int                                          // 总积分
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt

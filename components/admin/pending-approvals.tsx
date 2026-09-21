@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { CheckCircle, XCircle, Eye, FileText, Database, Search } from "lucide-react"
+import { CheckCircle, XCircle, Eye, FileText, Database, ListTodo, Search } from "lucide-react"
 import Link from "next/link"
 import { UnifiedTask, TASK_TYPE_MAP } from "@/lib/task-types"
 
@@ -32,6 +32,21 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
+
+  const getApproveApiUrl = (task: UnifiedTask) => {
+    if (task.taskType === "annotationTask") return `/api/annotation-tasks/${task.id}/approve`
+    if (task.taskType === "normalTask") return `/api/normal-tasks/${task.id}/approve`
+    return `/api/tasks/${task.id}/approve`
+  }
+
+  const getDeleteApiUrl = (task: UnifiedTask) => {
+    if (task.taskType === "annotationTask") return `/api/annotation-tasks/${task.id}`
+    if (task.taskType === "normalTask") return `/api/normal-tasks/${task.id}`
+    return `/api/tasks/${task.id}`
+  }
+
+  const getTaskTypeLabel = (task: UnifiedTask) =>
+    TASK_TYPE_MAP[task.taskType]?.label || task.taskType
 
   // Handle filter change
   const handleFilterChange = (key: string, value: string) => {
@@ -85,11 +100,7 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
   const approveTask = async (task: UnifiedTask) => {
     setLoadingId(task.id)
     try {
-      const apiUrl = task.taskType === "annotationTask" 
-        ? `/api/annotation-tasks/${task.id}/approve`
-        : `/api/tasks/${task.id}/approve`
-
-      const response = await fetch(apiUrl, {
+      const response = await fetch(getApproveApiUrl(task), {
         method: "PATCH",
       })
 
@@ -99,7 +110,7 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
 
       toast({
         title: "任务已审批",
-        description: `${task.taskType}已成功审批并发布`,
+        description: `${getTaskTypeLabel(task)}已成功审批并发布`,
       })
 
       router.refresh()
@@ -118,11 +129,7 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
   const rejectTask = async (task: UnifiedTask) => {
     setLoadingId(task.id)
     try {
-      const apiUrl = task.taskType === "annotationTask" 
-        ? `/api/annotation-tasks/${task.id}`
-        : `/api/tasks/${task.id}`
-
-      const response = await fetch(apiUrl, {
+      const response = await fetch(getDeleteApiUrl(task), {
         method: "DELETE",
       })
 
@@ -132,7 +139,7 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
 
       toast({
         title: "任务已拒绝",
-        description: `${task.taskType}已被拒绝并删除`,
+        description: `${getTaskTypeLabel(task)}已被拒绝并删除`,
       })
 
       router.refresh()
@@ -166,11 +173,7 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
     try {
       for (const task of selectedTaskList) {
         try {
-          const apiUrl = task.taskType === "annotationTask" 
-            ? `/api/annotation-tasks/${task.id}/approve`
-            : `/api/tasks/${task.id}/approve`
-
-          const response = await fetch(apiUrl, {
+          const response = await fetch(getApproveApiUrl(task), {
             method: "PATCH",
           })
 
@@ -220,11 +223,7 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
     try {
       for (const task of selectedTaskList) {
         try {
-          const apiUrl = task.taskType === "annotationTask" 
-            ? `/api/annotation-tasks/${task.id}`
-            : `/api/tasks/${task.id}`
-
-          const response = await fetch(apiUrl, {
+          const response = await fetch(getDeleteApiUrl(task), {
             method: "DELETE",
           })
 
@@ -253,14 +252,16 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
 
   // Get task type icon
   const getTaskTypeIcon = (taskType: string) => {
-    return taskType === "annotationTask" ? <Database className="h-4 w-4" /> : <FileText className="h-4 w-4" />
+    if (taskType === "annotationTask") return <Database className="h-4 w-4" />
+    if (taskType === "normalTask") return <ListTodo className="h-4 w-4" />
+    return <FileText className="h-4 w-4" />
   }
 
   // Get task type badge color
   const getTaskTypeColor = (taskType: string) => {
-    return taskType === "annotationTask" 
-      ? "bg-green-100 text-green-800 border-green-200"
-      : "bg-blue-100 text-blue-800 border-blue-200"
+    if (taskType === "annotationTask") return "bg-green-100 text-green-800 border-green-200"
+    if (taskType === "normalTask") return "bg-amber-100 text-amber-800 border-amber-200"
+    return "bg-blue-100 text-blue-800 border-blue-200"
   }
 
   // Get task detail link
@@ -290,6 +291,7 @@ export function PendingApprovals({ tasks, pagination, query }: PendingApprovalsP
               <SelectItem value="ALL">全部类型</SelectItem>
               <SelectItem value="task">科普任务</SelectItem>
               <SelectItem value="annotationTask">标注任务</SelectItem>
+              <SelectItem value="normalTask">日常任务</SelectItem>
             </SelectContent>
           </Select>
         </div>

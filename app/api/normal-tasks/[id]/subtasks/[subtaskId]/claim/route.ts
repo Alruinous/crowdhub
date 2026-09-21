@@ -21,13 +21,16 @@ export async function POST(
 
     const task = await db.normalTask.findUnique({
       where: { id: taskId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, approved: true },
     });
     if (!task) {
       return NextResponse.json({ error: "任务不存在" }, { status: 404 });
     }
     if (task.status !== "IN_PROGRESS") {
       return NextResponse.json({ error: "任务未发布或已完成，无法认领子任务" }, { status: 400 });
+    }
+    if (!task.approved) {
+      return NextResponse.json({ error: "任务尚未通过管理员审核，无法认领子任务" }, { status: 403 });
     }
 
     const subtask = await db.normalSubtask.findUnique({

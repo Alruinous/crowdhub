@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getNormalTaskApprovalRequired } from "@/lib/settings";
 
 export async function POST(
   request: NextRequest,
@@ -39,14 +40,22 @@ export async function POST(
       );
     }
 
+    const requiresApproval = await getNormalTaskApprovalRequired();
+
     await db.normalTask.update({
       where: { id },
-      data: { status: "IN_PROGRESS" },
+      data: {
+        status: "IN_PROGRESS",
+        approved: !requiresApproval,
+      },
     });
 
     return NextResponse.json({
       success: true,
-      message: "已发布，任务进入进行中",
+      requiresApproval,
+      message: requiresApproval
+        ? "任务已提交，等待管理员审核"
+        : "任务已发布，worker 现在可以认领",
     });
   } catch (error) {
     console.error("发布日常任务失败:", error);

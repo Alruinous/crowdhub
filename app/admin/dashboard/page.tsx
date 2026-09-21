@@ -7,8 +7,9 @@ import { db } from "@/lib/db"
 import { AdminStats } from "@/components/admin/admin-stats"
 import { PendingApprovals } from "@/components/admin/pending-approvals"
 import { getUnifiedTasks, getTaskStats } from "@/lib/task-utils"
-import { getAnnotationApprovalRequired } from "@/lib/settings"
+import { getAnnotationApprovalRequired, getNormalTaskApprovalRequired } from "@/lib/settings"
 import { AnnotationApprovalToggle } from "@/components/admin/annotation-approval-toggle"
+import { NormalTaskApprovalToggle } from "@/components/admin/normal-task-approval-toggle"
 
 interface AdminDashboardPageProps {
   searchParams: Promise<{
@@ -52,7 +53,10 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
   }
 
   // 标注任务审核开关（是否需要审核才能进入任务广场）
-  const requiresAnnotationApproval = await getAnnotationApprovalRequired()
+  const [requiresAnnotationApproval, requiresNormalTaskApproval] = await Promise.all([
+    getAnnotationApprovalRequired(),
+    getNormalTaskApprovalRequired(),
+  ])
 
   // Get tasks pending approval with filters and pagination
   const pendingTasks = await getUnifiedTasks({
@@ -80,8 +84,9 @@ export default async function AdminDashboardPage({ searchParams }: AdminDashboar
 
       <AdminStats stats={stats} />
 
-      <div className="mt-6">
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <AnnotationApprovalToggle requiresApproval={requiresAnnotationApproval} />
+        <NormalTaskApprovalToggle requiresApproval={requiresNormalTaskApproval} />
       </div>
 
       <div className="mt-8">

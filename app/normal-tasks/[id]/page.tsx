@@ -60,7 +60,14 @@ export default async function NormalTaskDetailPage({ params }: PageProps) {
       };
     });
 
-  const statusText = task.status === "OPEN" ? "待发布" : task.status === "IN_PROGRESS" ? "进行中" : "已完成";
+  const awaitingApproval = task.status === "IN_PROGRESS" && !task.approved;
+  const statusText = task.status === "OPEN"
+    ? "待发布"
+    : awaitingApproval
+      ? "待管理员审核"
+      : task.status === "IN_PROGRESS"
+        ? "进行中"
+        : "已完成";
 
   // 任务统计
   const claimedCount = task.subtasks.filter((s) => s.workerId).length;
@@ -121,7 +128,7 @@ export default async function NormalTaskDetailPage({ params }: PageProps) {
                 </div>
               )}
 
-              {(isPublisher || isAdmin) && task.status === "IN_PROGRESS" && (
+              {(isPublisher || isAdmin) && task.status === "IN_PROGRESS" && task.approved && (
                 <div className="border-t pt-4">
                   <CompleteButton
                     taskId={task.id}
@@ -141,6 +148,8 @@ export default async function NormalTaskDetailPage({ params }: PageProps) {
                 <CardDescription>
                   {task.status === "OPEN"
                     ? "发布前由 AI 拆解的子任务，可点击重新拆分"
+                    : awaitingApproval
+                      ? "任务已提交，管理员审核通过后 worker 才能认领"
                     : task.status === "IN_PROGRESS"
                       ? "每个子任务限一人认领，认领后完成并提交"
                       : "任务已完成，所有子任务均已交付确认"}
@@ -177,7 +186,7 @@ export default async function NormalTaskDetailPage({ params }: PageProps) {
                             subtaskId={s.id}
                             status={s.status}
                             isClaimedByMe={s.workerId === session.user.id}
-                            isWorker={isWorker}
+                            isWorker={isWorker && task.approved}
                             workerName={s.worker?.name}
                           />
                         </div>
