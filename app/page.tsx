@@ -145,19 +145,15 @@ export default async function Home() {
         <div className="container max-w-6xl mx-auto px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             <div className="flex flex-col items-center">
-              <span className="text-4xl font-bold text-blue-400">x+</span>
+              <span className="text-4xl font-bold text-blue-400">2+</span>
               <span className="text-slate-300 mt-2">科普任务类型</span>
             </div>
             <div className="flex flex-col items-center">
-              <span className="text-4xl font-bold text-green-400">xxxx+</span>
+              <span className="text-4xl font-bold text-green-400">1000+</span>
               <span className="text-slate-300 mt-2">专业协作者</span>
             </div>
             <div className="flex flex-col items-center">
-              <span className="text-4xl font-bold text-purple-400">xx%</span>
-              <span className="text-slate-300 mt-2">任务完成率</span>
-            </div>
-            <div className="flex flex-col items-center">
-              <span className="text-4xl font-bold text-yellow-400">10+</span>
+              <span className="text-4xl font-bold text-yellow-400">20+</span>
               <span className="text-slate-300 mt-2">科普领域</span>
             </div>
           </div>
