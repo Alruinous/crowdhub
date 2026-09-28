@@ -143,7 +143,7 @@ export default async function Home() {
       {/* Stats Section */}
       <div className="w-full bg-slate-900 text-white py-16">
         <div className="container max-w-6xl mx-auto px-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
             <div className="flex flex-col items-center">
               <span className="text-4xl font-bold text-blue-400">2+</span>
               <span className="text-slate-300 mt-2">科普任务类型</span>
